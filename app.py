@@ -12,25 +12,23 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
 )
 
-# CSS: 800px container, vertical controls (stacked), text-scale var, etc.
+# CSS: 800px container, vertical controls, gallery styling, gentler light mode
 INJECT_CSS = r"""
 :root {
-  --page-bg: #f3f6fb;
-  --container-bg: #ffffff;
-  --text: #0b1220;
-  --accent: #1e66d0;
-  --accent-strong: #174ea6;
-  --banner-bg: #eef6ff;
-  --muted: #6b7280;
+  --page-bg: #f6f8fa;          /* softer page background */
+  --container-bg: #ffffff;     /* container bg */
+  --text: #12121a;             /* slightly muted black */
+  --accent: #1976d2;           /* pleasant blue */
+  --accent-strong: #115293;
+  --muted: #556070;
   --mirage-font-scale: 1;
 }
 html.dark {
-  --page-bg: #0b1220;
-  --container-bg: #0f1724;
-  --text: #e6eef8;
+  --page-bg: #071120;
+  --container-bg: #0a1724;
+  --text: #dbeafc;
   --accent: #5ea3ff;
   --accent-strong: #2b7be6;
-  --banner-bg: #07203a;
   --muted: #9aa9bf;
 }
 body {
@@ -48,14 +46,14 @@ body {
   margin: 36px auto;
   background: var(--container-bg);
   padding: 18px;
-  box-shadow: 0 6px 18px rgba(11,18,32,0.06);
-  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(11,18,32,0.04);
+  border-radius: 8px;
   box-sizing: border-box;
   overflow-wrap: break-word;
 }
 /* banner and divider */
 .mirage-banner {
-  border-top: 1px solid rgba(0,0,0,0.06);
+  border-top: 1px solid rgba(0,0,0,0.04);
   padding-top: 12px;
   margin-bottom: 14px;
   font-size: 13px;
@@ -82,12 +80,50 @@ a {
   text-decoration: none;
 }
 a:hover { text-decoration: underline; }
-/* categories */
-ul.categories { list-style: none; padding: 0; margin-top: 1.2rem; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 8px; }
-ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color: var(--muted); }
-/* images */
-#content img { max-width: 100%; height: auto; display: block; margin: 0.6rem 0; }
-/* templates / infoboxes / navboxes: make them responsive and non-floating */
+
+/* hide pagetop and vector-body-before-content inside content */
+#content .pagetop,
+.vector-body-before-content {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* gallery: display images side-by-side, responsive wrap */
+.mirage-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0.6rem 0;
+  justify-content: flex-start;
+}
+.mirage-gallery-item {
+  display: inline-block;
+  width: calc(33.333% - 10px);
+  box-sizing: border-box;
+  text-align: center;
+}
+.mirage-gallery-item img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+.mirage-gallery-item .caption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.3;
+}
+/* responsive gallery: full width on small screens */
+@media (max-width: 860px) {
+  .mirage-gallery-item { width: calc(50% - 10px); }
+}
+@media (max-width: 520px) {
+  .mirage-gallery-item { width: 100%; }
+}
+
+/* templates / infoboxes / navboxes: responsive */
 #content .infobox,
 #content .portable-infobox,
 #content .vertical-navbox,
@@ -107,18 +143,9 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   margin: 0.6rem auto !important;
   box-sizing: border-box !important;
 }
-/* ensure images inside templates are constrained */
-#content .infobox img,
-#content .thumb img,
-#content .portable-infobox img {
-  max-width: 100% !important;
-  height: auto !important;
-  display: block;
-}
-/* hide pagetop blocks */
-#content .pagetop { display: none !important; visibility: hidden !important; }
+#content img { max-width: 100%; height: auto; display: block; margin: 0.6rem 0; }
 
-/* tables: default center unless explicitly aligned/float classes present */
+/* tables: centered unless explicitly aligned/floated */
 #content table {
   margin-left: auto;
   margin-right: auto;
@@ -126,7 +153,6 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   max-width: 100%;
   overflow: auto;
 }
-/* preserve tables that explicitly float or declare alignment */
 #content table.floatleft,
 #content table.floatright,
 #content table[align],
@@ -134,7 +160,8 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   margin-left: 0;
   margin-right: 0;
 }
-/* YouTube placeholder styling */
+
+/* YouTube placeholders */
 .mirage-embed-wrapper { margin: 0.6rem 0; text-align: center; }
 .mirage-yt-placeholder {
   background: rgba(0,0,0,0.03);
@@ -144,7 +171,7 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   max-width: 100%;
 }
 .mirage-yt-placeholder p { margin: 0 0 8px 0; color: var(--muted); font-size: 14px; }
-.mirage-yt-allow { background: var(--accent); color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+.mirage-yt-allow { background: var(--accent); color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
 .mirage-yt-allow:hover { background: var(--accent-strong); }
 
 /* vertical control stack */
@@ -157,12 +184,14 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(11,18,32,0.06);
+  box-shadow: 0 6px 18px rgba(11,18,32,0.04);
   min-width: 44px;
 }
 .mirage-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* responsive adjustments */
+ul.categories { list-style: none; padding: 0; margin-top: 1.2rem; border-top: 1px solid rgba(0,0,0,0.04); padding-top: 8px; }
+ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color: var(--muted); }
+
 @media (max-width: 820px) {
   .mirage-container { width: auto; margin: 16px; padding: 12px; }
   .mirage-controls { right: 8px; top: 8px; }
@@ -170,7 +199,7 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
 }
 """
 
-# JS: vertical control stack, cookie-based text scale, YouTube consent
+# JavaScript: dark-mode, text-scale controls, YouTube consent; also gallery fine-tuning (no JS required for layout)
 INJECT_JS = r"""
 (function () {
   function setCookie(name, value, days) {
@@ -193,7 +222,6 @@ INJECT_JS = r"""
     return null;
   }
 
-  // dark mode
   function applyMode(mode) {
     if (mode === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
@@ -201,7 +229,6 @@ INJECT_JS = r"""
   var storedMode = localStorage.getItem('mirage_mode');
   if (storedMode) applyMode(storedMode);
 
-  // text scale
   function applyTextScale(scale) {
     if (!scale) scale = 1;
     document.documentElement.style.setProperty('--mirage-font-scale', String(parseFloat(scale)));
@@ -209,7 +236,6 @@ INJECT_JS = r"""
   var ts = getCookie('mirage_text_scale') || '1';
   applyTextScale(ts);
 
-  // YouTube embed consent helpers
   function showAllYouTubeEmbeds() {
     document.querySelectorAll('.mirage-embed-wrapper').forEach(function(w) {
       var tpl = w.querySelector('template.mirage-embed-template');
@@ -220,7 +246,6 @@ INJECT_JS = r"""
       }
     });
   }
-
   function setupPlaceholders() {
     var consent = getCookie('mirage_allow_youtube');
     document.querySelectorAll('.mirage-embed-wrapper').forEach(function(w) {
@@ -244,7 +269,6 @@ INJECT_JS = r"""
     });
   }
 
-  // build vertical controls: Dark toggle + text-size inc/dec + label
   function buildControls() {
     var container = document.createElement('div');
     container.className = 'mirage-controls';
@@ -267,7 +291,6 @@ INJECT_JS = r"""
     decBtn.className = 'mirage-btn';
     decBtn.title = 'Decrease text size';
     decBtn.textContent = 'A-';
-
     var lbl = document.createElement('div');
     lbl.style.padding = '6px 8px';
     lbl.style.fontSize = '13px';
@@ -313,57 +336,50 @@ def fetch_remote(url):
     headers = {"User-Agent": USER_AGENT}
     return requests.get(url, headers=headers, timeout=15)
 
-# ---- Link rewriting improvements ----
+# ---- Link rewriting: handle fragments properly and /w/ index.php category pagers ----
 def rewrite_links_in_tag(tag, wiki, base_url):
-    """
-    Rewrite anchors to keep navigation within this proxy. Handles:
-      - /wiki/...  -> /{wiki}/wiki/...
-      - /w/...     -> /{wiki}/w/...
-      - absolute miraheze subdomain links -> /{sub}/wiki/...
-      - protocol-relative // -> https:
-      - query-only links '?...' -> preserve page context and prefix with /{wiki}{base_path}
-    base_url should be the original remote page URL (e.g. https://WIKI.miraheze.org/wiki/Page)
-    """
     base_parsed = urlparse(base_url)
     base_path = base_parsed.path or ""
     for a in tag.find_all("a", href=True):
-        href = (a["href"] or "").strip()
-        if not href:
+        raw = (a["href"] or "").strip()
+        if not raw:
             continue
-        if href.startswith("javascript:") or href.startswith("mailto:"):
+        if raw.startswith("javascript:") or raw.startswith("mailto:"):
             continue
-        if href.startswith("//"):
-            a["href"] = "https:" + href
+        if raw.startswith("#"):
+            # leave fragment-only links alone (do not affix /wiki/...), they will jump within same page
+            a["href"] = raw
             continue
-        if href.startswith("http://") or href.startswith("https://"):
-            parsed = urlparse(href)
+        if raw.startswith("//"):
+            a["href"] = "https:" + raw
+            continue
+        if raw.startswith("http://") or raw.startswith("https://"):
+            parsed = urlparse(raw)
             host = parsed.netloc.lower()
-            # Miraheze subdomain absolute links -> map to our proxy
             if host.endswith(".miraheze.org"):
                 sub = host.split(".")[0]
-                # preserve path + query
+                # preserve path + query + fragment
                 new = f"/{quote(sub, safe='')}{parsed.path}"
                 if parsed.query:
                     new += "?" + parsed.query
+                if parsed.fragment:
+                    new += "#" + parsed.fragment
                 a["href"] = new
             else:
-                # external other hosts: open in new tab
                 a["target"] = "_blank"
             continue
-        # href starts with '/'
-        if href.startswith("/"):
-            # /wiki/... or /w/... etc -> prefix with wiki
-            a["href"] = f"/{quote(wiki, safe='')}{href}"
+        if raw.startswith("/"):
+            # prefix wiki, keep fragment if present in original raw? raw may include fragment
+            a["href"] = f"/{quote(wiki, safe='')}{raw}"
             continue
-        # query-only links like ?from=... -> attach to current page path
-        if href.startswith("?"):
-            # ensure base_path exists and is a wiki path (it usually is /wiki/Page)
-            a["href"] = f"/{quote(wiki, safe='')}{base_path}{href}"
+        if raw.startswith("?"):
+            # query-only links: attach to current page base_path; preserve fragment if present
+            a["href"] = f"/{quote(wiki, safe='')}{base_path}{raw}"
             continue
-        # relative paths (no slash) -> assume a page name relative to /wiki/<page>
-        # map to /{wiki}/wiki/{href}
-        a["href"] = f"/{quote(wiki, safe='')}/wiki/{quote(href, safe='')}"
+        # relative path (no slash, no query, no fragment) -> treat as /wiki/<page>
+        a["href"] = f"/{quote(wiki, safe='')}/wiki/{quote(raw, safe='')}"
 
+# ---- Images normalization ----
 def normalize_images_in_tag(tag, wiki, base_url):
     for img in tag.find_all("img", src=True):
         src = (img["src"] or "").strip()
@@ -376,7 +392,7 @@ def normalize_images_in_tag(tag, wiki, base_url):
         else:
             img["src"] = urljoin(base_url, src)
 
-# ---- Category extraction (same approach as before) ----
+# ---- Category helpers (unchanged) ----
 def find_categories_early(soup, wiki):
     selectors = [
         ".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks",
@@ -429,7 +445,7 @@ def extract_categories_from_content(content_tag, wiki):
                 return items
     return None
 
-# ---- Remove unwanted globals (robust) ----
+# ---- Remove unwanted globals, hide cookie banners, vector class ----
 def remove_unwanted_global(soup):
     for tag in list(soup.find_all(["script", "style"])):
         try:
@@ -442,7 +458,7 @@ def remove_unwanted_global(soup):
                 link.decompose()
         except Exception:
             pass
-    # Remove cookie containers heuristically
+    # cookie heuristics and remove vector-body-before-content
     for el in list(soup.find_all()):
         if not isinstance(el, Tag):
             continue
@@ -450,7 +466,7 @@ def remove_unwanted_global(soup):
             id_attr = el.get("id", "") or ""
             class_attr = " ".join(el.get("class", [])) if el.get("class") else ""
             combined = (id_attr + " " + class_attr).lower()
-            if "cookie" in combined or "cookies" in combined:
+            if "cookie" in combined or "cookies" in combined or "vector-body-before-content" in combined:
                 el.decompose()
                 continue
             text = (el.get_text(" ", strip=True) or "").lower()
@@ -471,7 +487,7 @@ def remove_unwanted_global(soup):
             except Exception:
                 pass
 
-# ---- Templates/tables reformat (same approach) ----
+# ---- Reformat templates and tables (unchanged) ----
 def reformat_templates_and_tables(content_tag):
     template_selectors = [
         ".infobox", ".portable-infobox", ".vertical-navbox", ".navbox",
@@ -522,7 +538,71 @@ def reformat_templates_and_tables(content_tag):
         except Exception:
             continue
 
-# ---- YouTube detection & placeholders (robust) ----
+# ---- Gallery reformatting: produce mirage-gallery markup ----
+def reformat_galleries(content_tag, wiki, base_url):
+    """
+    Convert typical MediaWiki gallery markup (div.gallery, ul.gallery) into a flexible inline gallery.
+    This improves appearance vs list rendering.
+    """
+    # find gallery containers
+    for gallery in list(content_tag.select(".gallery, .mw-gallery, .gallerybox")):
+        try:
+            items = []
+            # typical gallery includes <li class="gallerybox"> with <div class="thumb"> or <a><img>
+            for img_node in gallery.select("img"):
+                # find nearest caption (gallerycaption or gallerytext or title attr)
+                caption = None
+                # check ancestor gallerybox for caption
+                parent_li = img_node.find_parent(["li", "div"])
+                if parent_li:
+                    cap = parent_li.select_one(".gallerytext, .gallerycaption")
+                    if cap:
+                        caption = cap.get_text(" ", strip=True)
+                if not caption:
+                    # fallback to alt or title
+                    caption = img_node.get("alt") or img_node.get("title") or ""
+                # src normalization (leave direct links)
+                src = img_node.get("src") or ""
+                # If relative, make absolute
+                if src.startswith("//"):
+                    src = "https:" + src
+                elif src.startswith("/"):
+                    src = f"https://{wiki}.miraheze.org{src}"
+                elif not (src.startswith("http://") or src.startswith("https://")):
+                    src = urljoin(base_url, src)
+                items.append((src, caption))
+            if not items:
+                # if no img tags found, try to find anchors with class galleryimage
+                for a in gallery.select("a.galleryimage, a"):
+                    img = a.find("img")
+                    if not img:
+                        continue
+                    src = img.get("src") or ""
+                    if src.startswith("//"):
+                        src = "https:" + src
+                    elif src.startswith("/"):
+                        src = f"https://{wiki}.miraheze.org{src}"
+                    elif not (src.startswith("http://") or src.startswith("https://")):
+                        src = urljoin(base_url, src)
+                    caption = img.get("alt") or img.get("title") or a.get("title") or ""
+                    items.append((src, caption))
+            # build new gallery node
+            gal = BeautifulSoup("", "lxml").new_tag("div", **{"class": "mirage-gallery"})
+            for src, caption in items:
+                item = BeautifulSoup("", "lxml").new_tag("div", **{"class": "mirage-gallery-item"})
+                imgtag = BeautifulSoup("", "lxml").new_tag("img", src=src)
+                item.append(imgtag)
+                if caption:
+                    c = BeautifulSoup("", "lxml").new_tag("div", **{"class": "caption"})
+                    c.string = caption
+                    item.append(c)
+                gal.append(item)
+            # replace original gallery with new gal
+            gallery.replace_with(gal)
+        except Exception:
+            continue
+
+# ---- YouTube detect & placeholder (unchanged) ----
 def detect_and_replace_youtube(content_tag):
     builder = BeautifulSoup("", "lxml")
     for iframe in list(content_tag.find_all("iframe", src=True)):
@@ -563,7 +643,7 @@ def detect_and_replace_youtube(content_tag):
         except Exception:
             pass
 
-# ---- Category helpers (earlier and fallback) ----
+# ---- Main helpers: categories, removal etc (unchanged) ----
 def find_categories_early(soup, wiki):
     selectors = [
         ".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks",
@@ -616,28 +696,24 @@ def extract_categories_from_content(content_tag, wiki):
                 return items
     return None
 
-# ---- Main page (root) ----
+# ---- Routes ----
 @app.route("/")
 def index():
     return render_template("index.html")
 
-# ---- Route: normal wiki pages ----
 @app.route("/<wiki>/wiki/<path:page>")
 def page_proxy(wiki, page):
     remote_url = f"https://{wiki}.miraheze.org/wiki/{page}"
     return fetch_and_transform(remote_url, wiki)
 
-# ---- Route: proxy for /w/* (handles index.php category pages and any index.php concerns) ----
 @app.route("/<wiki>/w/<path:rest>")
 def w_proxy(wiki, rest):
-    # rebuild remote URL including query string
     qs = request.query_string.decode() or ""
     remote_url = f"https://{wiki}.miraheze.org/w/{rest}"
     if qs:
-        remote_url = remote_url + "?" + qs
+        remote_url += "?" + qs
     return fetch_and_transform(remote_url, wiki)
 
-# ---- Core fetch + transform logic used by both routes ----
 def fetch_and_transform(remote_url, wiki):
     try:
         r = fetch_remote(remote_url)
@@ -655,13 +731,9 @@ def fetch_and_transform(remote_url, wiki):
 
     original = BeautifulSoup(r.text, "lxml")
 
-    # extract categories early from raw HTML
     categories = find_categories_early(original, wiki)
-
-    # remove unwanted global bits
     remove_unwanted_global(original)
 
-    # find content block (strict id="content" preferred)
     content_tag = original.find(id="content")
     if not content_tag:
         candidate = original.select_one("#mw-content-text, #bodyContent, main")
@@ -675,33 +747,21 @@ def fetch_and_transform(remote_url, wiki):
     if not content_tag:
         return Response("No content found on remote page.", status=502)
 
-    # remove cookie warning if it slipped through
-    c = content_tag.find(id="mw-cookiewarning-container")
-    if c:
+    # remove cookie warning under content, remove pagetop and vector class inside content
+    for bad in list(content_tag.select("#mw-cookiewarning-container, .pagetop, .vector-body-before-content")):
         try:
-            c.decompose()
+            bad.decompose()
         except Exception:
             pass
-
-    # remove any pagetop elements inside content explicitly
-    for ptop in list(content_tag.select(".pagetop")):
-        try:
-            ptop.decompose()
-        except Exception:
-            pass
-
-    # remove edit-section links if present
     for edit in list(content_tag.select(".mw-editsection")):
         try:
             edit.decompose()
         except Exception:
             pass
 
-    # prepare new minimal doc
     doc = BeautifulSoup("<!doctype html><html><head></head><body></body></html>", "lxml")
     head = doc.head
-    meta = doc.new_tag("meta", charset="utf-8")
-    head.append(meta)
+    head.append(doc.new_tag("meta", charset="utf-8"))
     style_tag = doc.new_tag("style")
     style_tag.string = INJECT_CSS
     head.append(style_tag)
@@ -709,7 +769,6 @@ def fetch_and_transform(remote_url, wiki):
     script_tag.string = INJECT_JS
     head.append(script_tag)
 
-    # banner
     banner_div = doc.new_tag("div", **{"class": "mirage-banner"})
     strong = doc.new_tag("strong")
     strong.string = "You're viewing this page on Mirage, a privacy frontend to Miraheze licensed under GPL 3.0."
@@ -721,25 +780,24 @@ def fetch_and_transform(remote_url, wiki):
     container = doc.new_tag("div", **{"class": "mirage-container"})
     container.append(banner_div)
 
-    # reparse content fragment safely
     content_fragment = BeautifulSoup(str(content_tag), "lxml")
     content_only = content_fragment.find(id="content")
     if not content_only:
         return Response("Unexpected error extracting content.", status=500)
 
-    # rewrite links (handles '?', /w/ etc), normalize images, detect youtube, reformat templates/tables
     rewrite_links_in_tag(content_only, wiki, remote_url)
     normalize_images_in_tag(content_only, wiki, remote_url)
+
+    # galleries first (reformat), then youtube, then templates/tables
+    reformat_galleries(content_only, wiki, remote_url)
     detect_and_replace_youtube(content_only)
     reformat_templates_and_tables(content_only)
 
-    # fallback: extract categories from content if none found earlier
     if not categories:
         categories = extract_categories_from_content(content_only, wiki)
 
     container.append(content_only)
 
-    # append categories
     if categories:
         ul = doc.new_tag("ul", **{"class": "categories"})
         for text, link in categories:
@@ -753,25 +811,6 @@ def fetch_and_transform(remote_url, wiki):
     doc.body.append(container)
     final_html = str(doc)
     return Response(final_html, content_type="text/html; charset=utf-8")
-
-# ---- helper for GET requests ----
-def fetch_remote(url):
-    headers = {"User-Agent": USER_AGENT}
-    return requests.get(url, headers=headers, timeout=15)
-
-# ---- optional small /go redirect helper for your main page form (if present) ----
-@app.route('/go', methods=['GET', 'POST'])
-def go():
-    wiki = (request.values.get('wiki') or '').strip()
-    page = (request.values.get('page') or '').strip()
-    if not wiki or not page:
-        return render_template("index.html")
-    wiki_safe = "".join([c for c in wiki if c.isalnum() or c in "-_."])
-    if not wiki_safe:
-        return render_template("index.html")
-    segments = [quote(seg, safe='') for seg in page.split('/')]
-    page_path = '/'.join(segments)
-    return Response(status=302, headers={"Location": f'/{wiki_safe}/wiki/{page_path}'})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000, debug=False)
