@@ -12,7 +12,7 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
 )
 
-# — CSS & JS strings (same as previous UX: 800px container, gentle light mode, vertical controls, gallery, youtube consent, text scaling) —
+# Improved responsive CSS + gentler light mode + gallery improvements
 INJECT_CSS = r"""
 :root {
   --page-bg: #f6f8fa;
@@ -22,6 +22,15 @@ INJECT_CSS = r"""
   --accent-strong: #115293;
   --muted: #556070;
   --mirage-font-scale: 1;
+  --container-side-padding: 16px;
+  --container-max-width: 800px;
+  --control-size: 44px;
+  --gap: 10px;
+}
+/* Prevent iOS Safari auto text-size shrinking */
+html, body {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
 }
 html.dark {
   --page-bg: #071120;
@@ -38,23 +47,30 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: 16px; /* base for rem calculations */
 }
+
+/* Responsive container: width 100% with max-width */
 .mirage-container {
-  width: 800px;
-  max-width: calc(100% - 32px);
-  margin: 36px auto;
+  width: 100%;
+  max-width: var(--container-max-width);
+  margin: 28px auto;
+  padding: 20px;
+  padding-left: var(--container-side-padding);
+  padding-right: var(--container-side-padding);
   background: var(--container-bg);
-  padding: 18px;
   box-shadow: 0 6px 18px rgba(11,18,32,0.04);
   border-radius: 8px;
   box-sizing: border-box;
   overflow-wrap: break-word;
 }
+
+/* Banner */
 .mirage-banner {
   border-top: 1px solid rgba(0,0,0,0.04);
   padding-top: 12px;
   margin-bottom: 14px;
-  font-size: 13px;
+  font-size: 0.875rem;
   color: var(--muted);
   display: block;
 }
@@ -64,42 +80,155 @@ body {
   margin-bottom: 6px;
   font-weight: 600;
 }
+
+/* Content text sizing uses rem and the --mirage-font-scale variable */
 #content {
-  line-height: 1.6;
-  font-size: calc(16px * var(--mirage-font-scale));
+  line-height: 1.65;
+  font-size: calc(1rem * var(--mirage-font-scale)); /* 1rem == 16px */
   box-sizing: border-box;
+  word-break: break-word;
 }
 #content h1, #content h2, #content h3 {
   color: var(--accent-strong);
+  margin-top: 1.2rem;
+  margin-bottom: 0.6rem;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Hide pagetop and vector pre-content markers */
 #content .pagetop,
 .vector-body-before-content { display: none !important; visibility: hidden !important; }
-/* gallery */
-.mirage-gallery { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; margin: 0.6rem 0; justify-content:flex-start; }
-.mirage-gallery-item { display:inline-block; width: calc(33.333% - 10px); box-sizing: border-box; text-align:center; }
-.mirage-gallery-item img { width:100%; height:auto; display:block; border-radius:4px; }
-.mirage-gallery-item .caption { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.3; }
-@media (max-width:860px){ .mirage-gallery-item{ width: calc(50% - 10px);} }
-@media (max-width:520px){ .mirage-gallery-item{ width:100%; } }
-#content img { max-width:100%; height:auto; display:block; margin:0.6rem 0; }
-#content .infobox, #content .portable-infobox, #content .vertical-navbox, #content .navbox, #content .thumb, #content .thumbinner, #content .sidebar, #content .metadata, #content .mbox, #content .ambox, #content .hatnote { float:none!important; clear:both!important; display:block!important; width:auto!important; max-width:100%!important; margin:0.6rem auto!important; box-sizing:border-box!important; }
-#content table { margin-left:auto; margin-right:auto; box-sizing:border-box; max-width:100%; overflow:auto; }
-#content table.floatleft, #content table.floatright, #content table[align], #content table[style*="float"] { margin-left:0; margin-right:0; }
-.mirage-embed-wrapper { margin:0.6rem 0; text-align:center; }
-.mirage-yt-placeholder { background: rgba(0,0,0,0.03); padding:10px; border-radius:6px; display:inline-block; max-width:100%; }
-.mirage-yt-placeholder p { margin:0 0 8px 0; color:var(--muted); font-size:14px; }
-.mirage-yt-allow { background:var(--accent); color:#fff; border:none; padding:6px 10px; border-radius:4px; cursor:pointer; }
-.mirage-yt-allow:hover { background:var(--accent-strong); }
-.mirage-controls { position: fixed; right: 12px; top: 12px; z-index: 1200; display:flex; flex-direction: column; gap:8px; align-items:flex-end; }
-.mirage-btn { background: var(--container-bg); color: var(--text); border:1px solid rgba(0,0,0,0.06); padding:6px 8px; border-radius:8px; font-size:13px; cursor:pointer; box-shadow:0 6px 18px rgba(11,18,32,0.04); min-width:44px; }
-.mirage-btn:focus { outline: 2px solid var(--accent); outline-offset:2px; }
-ul.categories { list-style:none; padding:0; margin-top:1.2rem; border-top:1px solid rgba(0,0,0,0.04); padding-top:8px; }
-ul.categories li { display:inline; margin-right:0.6rem; font-size:13px; color:var(--muted); }
-@media (max-width:820px){ .mirage-container { width:auto; margin:16px; padding:12px; } .mirage-controls { right:8px; top:8px; } .mirage-btn { padding:5px 6px; font-size:12px; } }
+
+/* Gallery: flexible responsive layout */
+.mirage-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  margin: 0.6rem 0;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+.mirage-gallery-item {
+  box-sizing: border-box;
+  flex: 0 1 calc(33.333% - var(--gap));
+  max-width: calc(33.333% - var(--gap));
+  text-align: center;
+}
+.mirage-gallery-item img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 6px;
+}
+.mirage-gallery-item .caption {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.25;
+}
+
+/* Ensure images scale within content */
+#content img { max-width: 100%; height: auto; display: block; margin: 0.6rem 0; }
+
+/* Templates and infoboxes become full-width and non-floating */
+#content .infobox,
+#content .portable-infobox,
+#content .vertical-navbox,
+#content .navbox,
+#content .thumb,
+#content .thumbinner,
+#content .sidebar,
+#content .metadata,
+#content .mbox,
+#content .ambox,
+#content .hatnote {
+  float: none !important;
+  clear: both !important;
+  display: block !important;
+  width: auto !important;
+  max-width: 100% !important;
+  margin: 0.6rem auto !important;
+  box-sizing: border-box !important;
+}
+
+/* Tables: center by default */
+#content table {
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: auto;
+}
+#content table.floatleft,
+#content table.floatright,
+#content table[align],
+#content table[style*="float"] {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* YouTube placeholder */
+.mirage-embed-wrapper { margin: 0.6rem 0; text-align: center; }
+.mirage-yt-placeholder {
+  background: rgba(0,0,0,0.03);
+  padding: 10px;
+  border-radius: 6px;
+  display: inline-block;
+  max-width: 100%;
+}
+.mirage-yt-placeholder p { margin: 0 0 8px 0; color: var(--muted); font-size: 0.875rem; }
+.mirage-yt-allow { background: var(--accent); color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+.mirage-yt-allow:hover { background: var(--accent-strong); }
+
+/* Controls: vertical stack */
+.mirage-controls {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  z-index: 1200;
+  display:flex;
+  flex-direction: column;
+  gap:8px;
+  align-items: flex-end;
+}
+.mirage-btn {
+  background: var(--container-bg);
+  color: var(--text);
+  border: 1px solid rgba(0,0,0,0.06);
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(11,18,32,0.04);
+  min-width: var(--control-size);
+}
+.mirage-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Categories */
+ul.categories { list-style: none; padding: 0; margin-top: 1.2rem; border-top: 1px solid rgba(0,0,0,0.04); padding-top: 8px; }
+ul.categories li { display: inline; margin-right: 0.6rem; font-size: 0.8125rem; color: var(--muted); }
+
+/* Responsive adjustments for small screens */
+@media (max-width: 880px) {
+  .mirage-container {
+    margin: 16px auto;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .mirage-gallery-item { flex: 0 1 calc(50% - var(--gap)); max-width: calc(50% - var(--gap)); }
+  .mirage-controls { right: 8px; top: 8px; }
+  .mirage-btn { padding: 6px 6px; font-size: 0.8125rem; min-width: 40px; }
+}
+@media (max-width: 520px) {
+  .mirage-container { margin: 12px; padding-left: 12px; padding-right: 12px; border-radius: 6px; }
+  .mirage-gallery-item { flex: 0 1 100%; max-width: 100%; }
+  .mirage-controls { right: 8px; top: 8px; }
+  .mirage-btn { padding: 5px 6px; font-size: 0.8125rem; min-width: 36px; }
+}
 """
 
+# Keep the same JS (dark mode, text-scale cookie, YouTube consent)
 INJECT_JS = r"""
 (function () {
   function setCookie(name, value, days) {
@@ -122,6 +251,7 @@ INJECT_JS = r"""
     return null;
   }
 
+  // Apply saved dark mode
   function applyMode(mode) {
     if (mode === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
@@ -129,6 +259,7 @@ INJECT_JS = r"""
   var storedMode = localStorage.getItem('mirage_mode');
   if (storedMode) applyMode(storedMode);
 
+  // Apply saved text scale (cookie)
   function applyTextScale(scale) {
     if (!scale) scale = 1;
     document.documentElement.style.setProperty('--mirage-font-scale', String(parseFloat(scale)));
@@ -136,6 +267,7 @@ INJECT_JS = r"""
   var ts = getCookie('mirage_text_scale') || '1';
   applyTextScale(ts);
 
+  // YouTube consent handling
   function showAllYouTubeEmbeds() {
     document.querySelectorAll('.mirage-embed-wrapper').forEach(function(w) {
       var tpl = w.querySelector('template.mirage-embed-template');
@@ -169,6 +301,7 @@ INJECT_JS = r"""
     });
   }
 
+  // Build vertical controls and label
   function buildControls() {
     var container = document.createElement('div');
     container.className = 'mirage-controls';
@@ -232,16 +365,17 @@ INJECT_JS = r"""
 })();
 """
 
-# Utility: build remote subdomain from wiki param
+# Utility functions and the rest of the app logic remain identical to the previous working version
+# For brevity I reuse the robust helpers from previous version (custom-host detection, gallery reformat, link rewriting, categories, etc.)
+# The important change for responsiveness is the CSS above and adding the viewport meta tag to each generated page.
+
+# --- Helpers (derive_remote_subdomain, detect_custom_host_from_soup, fetch_remote) ---
 def derive_remote_subdomain(wiki_param: str) -> str:
-    # If wiki_param contains dots (custom host like chinafake.wiki), assume first label is subdomain
     if '.' in wiki_param:
         return wiki_param.split('.')[0]
     return wiki_param
 
-# Utility: detect custom host from fetched HTML (look at canonical and og:url)
 def detect_custom_host_from_soup(soup: BeautifulSoup):
-    # Look for canonical link
     c = soup.find('link', rel=lambda r: r and 'canonical' in r)
     if c and c.get('href'):
         try:
@@ -250,7 +384,6 @@ def detect_custom_host_from_soup(soup: BeautifulSoup):
                 return parsed.netloc
         except Exception:
             pass
-    # Try meta property og:url
     og = soup.find('meta', property='og:url')
     if og and og.get('content'):
         try:
@@ -259,7 +392,6 @@ def detect_custom_host_from_soup(soup: BeautifulSoup):
                 return parsed.netloc
         except Exception:
             pass
-    # Try meta name='og:url' or twitter:url
     og2 = soup.find('meta', attrs={'name': 'og:url'}) or soup.find('meta', attrs={'name': 'twitter:url'})
     if og2 and og2.get('content'):
         try:
@@ -270,12 +402,15 @@ def detect_custom_host_from_soup(soup: BeautifulSoup):
             pass
     return None
 
-# Fetch helper
 def fetch_remote(url):
     headers = {"User-Agent": USER_AGENT}
     return requests.get(url, headers=headers, timeout=15)
 
-# Link rewriting: now aware of remote_sub and optional custom_host
+# The app uses the same robust helpers for rewriting links, normalizing images, reformatting galleries/tables,
+# removing cookie banners and unwanted elements, youtube placeholders, and categories as in prior version.
+# For clarity and to keep this patch self-contained, I include those helpers unchanged below:
+
+#--- link rewriting (aware of remote_sub and custom_host) ---
 def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
     base_parsed = urlparse(base_url)
     base_path = base_parsed.path or ""
@@ -296,7 +431,6 @@ def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
             host = parsed.netloc.lower()
             if host.endswith(".miraheze.org"):
                 sub = host.split(".")[0]
-                # If this host corresponds to the remote_sub for this page and custom_host present, use custom_host
                 if custom_host and sub == remote_sub:
                     new = f"/{quote(custom_host, safe='')}{parsed.path}"
                 else:
@@ -310,27 +444,22 @@ def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
                 a["target"] = "_blank"
             continue
         if raw.startswith("/"):
-            # If custom_host is present and this path is for the same wiki, prefix with custom_host
-            # We can't always know if "/" refers to this wiki, but we'll assume it does.
             if custom_host:
                 a["href"] = f"/{quote(custom_host, safe='')}{raw}"
             else:
                 a["href"] = f"/{quote(remote_sub, safe='')}{raw}"
             continue
         if raw.startswith("?"):
-            # query-only: attach to current path and prefix with custom_host if available
             if custom_host:
                 a["href"] = f"/{quote(custom_host, safe='')}{base_path}{raw}"
             else:
                 a["href"] = f"/{quote(remote_sub, safe='')}{base_path}{raw}"
             continue
-        # relative path -> /{wiki}/wiki/{raw}
         if custom_host:
             a["href"] = f"/{quote(custom_host, safe='')}/wiki/{quote(raw, safe='')}"
         else:
             a["href"] = f"/{quote(remote_sub, safe='')}/wiki/{quote(raw, safe='')}"
 
-# Images normalization: keep direct Miraheze URLs; for relative paths produce full URLs using remote_sub
 def normalize_images_in_tag(tag, remote_sub, base_url):
     for img in tag.find_all("img", src=True):
         src = (img["src"] or "").strip()
@@ -343,7 +472,6 @@ def normalize_images_in_tag(tag, remote_sub, base_url):
         else:
             img["src"] = urljoin(base_url, src)
 
-# Category helpers
 def find_categories_early(soup, wiki_param, remote_sub, custom_host):
     selectors = [
         ".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks",
@@ -357,7 +485,6 @@ def find_categories_early(soup, wiki_param, remote_sub, custom_host):
             for a in anchors:
                 text = a.get_text(strip=True)
                 href = a["href"].strip()
-                # map href for proxy: if absolute miraheze use sub or custom_host
                 if href.startswith("/wiki/"):
                     if custom_host:
                         link = f"/{custom_host}{href}"
@@ -403,7 +530,6 @@ def extract_categories_from_content(content_tag, wiki_param, remote_sub, custom_
                 return items
     return None
 
-# Remove global unwanted nodes (cookie banners, vector-body-before-content, headers)
 def remove_unwanted_global(soup):
     for tag in list(soup.find_all(["script", "style"])):
         try:
@@ -444,7 +570,6 @@ def remove_unwanted_global(soup):
             except Exception:
                 pass
 
-# Reformat templates and center tables
 def reformat_templates_and_tables(content_tag):
     template_selectors = [
         ".infobox", ".portable-infobox", ".vertical-navbox", ".navbox",
@@ -495,7 +620,6 @@ def reformat_templates_and_tables(content_tag):
         except Exception:
             continue
 
-# Reformat galleries into inline gallery markup
 def reformat_galleries(content_tag, remote_sub, base_url):
     for gallery in list(content_tag.select(".gallery, .mw-gallery, .gallerybox")):
         try:
@@ -547,7 +671,6 @@ def reformat_galleries(content_tag, remote_sub, base_url):
         except Exception:
             continue
 
-# Replace YouTube iframes with consent placeholders
 def detect_and_replace_youtube(content_tag):
     builder = BeautifulSoup("", "lxml")
     for iframe in list(content_tag.find_all("iframe", src=True)):
@@ -588,12 +711,9 @@ def detect_and_replace_youtube(content_tag):
         except Exception:
             pass
 
-# Core fetch-and-transform used by both /wiki/ and /w/ routes
+# Core fetch-and-transform (keeps custom-host detection and redirects as previously implemented)
 def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
-    # Derive remote subdomain for Miraheze fetch (first label if custom host, else wiki_param)
     remote_sub = derive_remote_subdomain(wiki_param)
-
-    # Build remote URL to fetch
     if mode == 'wiki':
         remote_url = f"https://{remote_sub}.miraheze.org/wiki/{path}"
     else:
@@ -601,15 +721,12 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
         if qs:
             remote_url += '?' + qs
 
-    # Fetch remote
     try:
         r = fetch_remote(remote_url)
     except requests.RequestException as e:
         return Response(f"Error fetching remote wiki: {e}", status=502)
-
     if r.status_code >= 400:
         return Response(f"Remote returned {r.status_code}", status=r.status_code)
-
     content_type = r.headers.get("Content-Type", "")
     if "text/html" not in content_type:
         resp = Response(r.content, status=r.status_code)
@@ -618,20 +735,14 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
 
     original = BeautifulSoup(r.text, "lxml")
 
-    # Detect custom host based on canonical/og:url
+    # detect custom host
     detected_host = detect_custom_host_from_soup(original)
     custom_host = None
-    if detected_host:
-        # If the detected host is not a miraheze.org host, use it
-        if not detected_host.endswith('.miraheze.org'):
-            custom_host = detected_host
+    if detected_host and not detected_host.endswith('.miraheze.org'):
+        custom_host = detected_host
 
-    # If custom_host found and the incoming wiki_param is the original Miraheze subdomain (no dot) we should redirect
-    # Example: incoming wiki_param == "chinafake" and detected custom_host == "chinafake.wiki" -> redirect to /chinafake.wiki/...
+    # redirect to custom host path if appropriate (incoming wiki_param was raw subdomain without dot)
     if custom_host and '.' not in wiki_param:
-        # Prevent redirect loops by checking if remote_sub matches the incoming wiki_param
-        # Redirect to the same path but with custom_host replacing the wiki segment
-        # Preserve query string if present for /w/ mode
         out_path = path
         out_qs = qs
         location = f"/{custom_host}/{ 'wiki' if mode=='wiki' else 'w' }/{out_path}"
@@ -639,11 +750,9 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
             location = location + "?" + out_qs
         return Response(status=302, headers={"Location": location})
 
-    # Remove remote skinning / cookie banners etc (operate on original so we can still extract categories early)
     categories = find_categories_early(original, wiki_param, remote_sub, custom_host)
     remove_unwanted_global(original)
 
-    # Find content block
     content_tag = original.find(id="content")
     if not content_tag:
         candidate = original.select_one("#mw-content-text, #bodyContent, main")
@@ -653,11 +762,9 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
                 wrapper.append(child.extract())
             candidate.replace_with(wrapper)
             content_tag = wrapper
-
     if not content_tag:
         return Response("No content found on remote page.", status=502)
 
-    # Defensive removals inside content
     for bad in list(content_tag.select("#mw-cookiewarning-container, .pagetop, .vector-body-before-content")):
         try:
             bad.decompose()
@@ -669,10 +776,11 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
         except Exception:
             pass
 
-    # Build result doc
     doc = BeautifulSoup("<!doctype html><html><head></head><body></body></html>", "lxml")
     head = doc.head
+    # meta: charset + viewport to ensure mobile scaling is correct
     head.append(doc.new_tag("meta", charset="utf-8"))
+    head.append(doc.new_tag("meta", name="viewport", content="width=device-width, initial-scale=1"))
     style_tag = doc.new_tag("style")
     style_tag.string = INJECT_CSS
     head.append(style_tag)
@@ -691,22 +799,17 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     container = doc.new_tag("div", **{"class": "mirage-container"})
     container.append(banner_div)
 
-    # Reparse content fragment to avoid cross-soup mixing
     content_fragment = BeautifulSoup(str(content_tag), "lxml")
     content_only = content_fragment.find(id="content")
     if not content_only:
         return Response("Unexpected error extracting content.", status=500)
 
-    # Rewriting/normalization now knows remote_sub and custom_host
     rewrite_links_in_tag(content_only, wiki_param, remote_sub, custom_host, remote_url)
     normalize_images_in_tag(content_only, remote_sub, remote_url)
-
-    # Galleries -> YouTube -> templates/tables
     reformat_galleries(content_only, remote_sub, remote_url)
     detect_and_replace_youtube(content_only)
     reformat_templates_and_tables(content_only)
 
-    # Fallback categories from content
     if not categories:
         categories = extract_categories_from_content(content_only, wiki_param, remote_sub, custom_host)
 
@@ -726,14 +829,13 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     final_html = str(doc)
     return Response(final_html, content_type="text/html; charset=utf-8")
 
-# Routes: accept dots in the <wiki> path segment
+# Routes accept dots in the wiki path segment
 @app.route("/")
 def index():
     return render_template("index.html")
 
 @app.route("/<path:wiki>/wiki/<path:page>")
 def page_proxy(wiki, page):
-    # wiki may be 'chinafake' or 'chinafake.wiki'
     return fetch_and_transform(wiki, page, mode='wiki', qs='')
 
 @app.route("/<path:wiki>/w/<path:rest>")
@@ -741,7 +843,6 @@ def w_proxy(wiki, rest):
     qs = request.query_string.decode() or ""
     return fetch_and_transform(wiki, rest, mode='w', qs=qs)
 
-# Optional /go redirect endpoint (same as before) for index form
 @app.route('/go', methods=['GET', 'POST'])
 def go():
     wiki = (request.values.get('wiki') or '').strip()
