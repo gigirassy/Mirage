@@ -3,7 +3,7 @@ Mirage is an open privacy frontend to Miraheze. It uses an extremely light inter
 
 Keep in mind Mirage is heavily WIP.
 
-Urls use the exact same format as Breezewiki.
+URLs use the exact same format as Breezewiki, and custom domains are also accounted for.
 
 ## How to host
 
@@ -19,4 +19,5 @@ Cloudflare is not allowed.
 | ---------------- | ---- | -------------- |
 | mirage.blitzw.in | 🇩🇰 | Main instance. |
 
-<img width="1119" height="884" alt="Screenshot of Mirage's interface." src="https://github.com/user-attachments/assets/996979f3-adae-4f27-b478-79a1ddad84e7" />
+
+<img width="1270" height="863" alt="image" src="https://github.com/user-attachments/assets/65b8348a-3bf6-484f-882e-ab95e2aa55a1" />
