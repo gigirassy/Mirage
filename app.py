@@ -585,6 +585,29 @@ def remove_unwanted_global(soup):
 def index():
     return render_template("index.html")
 
+@app.route('/go', methods=['GET', 'POST'])
+def go():
+    # Accept values from both querystring and form
+    wiki = (request.values.get('wiki') or '').strip()
+    page = (request.values.get('page') or '').strip()
+
+    if not wiki or not page:
+        # missing input -> redirect back to index
+        return redirect(url_for('index'))
+
+    # sanitize wiki: allow alphanumeric, dash, underscore, dot; remove any other chars
+    wiki_safe = re.sub(r'[^A-Za-z0-9\-\_\.]', '', wiki)
+
+    if not wiki_safe:
+        return redirect(url_for('index'))
+
+    # encode page for path. We preserve slashes (for subpages) by encoding each path segment
+    # split on slash, quote each segment, then rejoin with '/'
+    segments = [quote(seg, safe='') for seg in page.split('/')]
+    page_path = '/'.join(segments)
+
+    return redirect(f'/{wiki_safe}/wiki/{page_path}', code=302)
+
 @app.route("/<wiki>/wiki/<path:page>")
 def page_proxy(wiki, page):
     remote_url = f"https://{wiki}.miraheze.org/wiki/{page}"
