@@ -1,8 +1,8 @@
 # app.py
-from flask import Flask, Response, render_template
+from flask import Flask, Response, render_template, request
 import requests
 from bs4 import BeautifulSoup, Tag
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin, quote
 import os
 
 app = Flask(__name__)
@@ -12,8 +12,8 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
 )
 
-# CSS (container 800px, dark mode, text-scale, controls, etc.)
-INJECT_CSS = """\
+# CSS: 800px container, vertical controls (stacked), text-scale var, etc.
+INJECT_CSS = r"""
 :root {
   --page-bg: #f3f6fb;
   --container-bg: #ffffff;
@@ -115,6 +115,9 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   height: auto !important;
   display: block;
 }
+/* hide pagetop blocks */
+#content .pagetop { display: none !important; visibility: hidden !important; }
+
 /* tables: default center unless explicitly aligned/float classes present */
 #content table {
   margin-left: auto;
@@ -143,8 +146,9 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
 .mirage-yt-placeholder p { margin: 0 0 8px 0; color: var(--muted); font-size: 14px; }
 .mirage-yt-allow { background: var(--accent); color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
 .mirage-yt-allow:hover { background: var(--accent-strong); }
-/* control buttons (dark mode & text size) */
-.mirage-controls { position: fixed; right: 18px; top: 12px; z-index: 1200; display:flex; gap:8px; }
+
+/* vertical control stack */
+.mirage-controls { position: fixed; right: 12px; top: 12px; z-index: 1200; display:flex; flex-direction: column; gap:8px; align-items: flex-end; }
 .mirage-btn {
   background: var(--container-bg);
   color: var(--text);
@@ -154,18 +158,20 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
   font-size: 13px;
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(11,18,32,0.06);
+  min-width: 44px;
 }
 .mirage-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* responsive adjustments */
 @media (max-width: 820px) {
   .mirage-container { width: auto; margin: 16px; padding: 12px; }
-  .mirage-controls { right: 12px; top: 8px; }
+  .mirage-controls { right: 8px; top: 8px; }
   .mirage-btn { padding: 5px 6px; font-size: 12px; }
 }
 """
 
-# JavaScript: dark-mode, text-scale controls, YouTube consent (cookies)
-INJECT_JS = """\
+# JS: vertical control stack, cookie-based text scale, YouTube consent
+INJECT_JS = r"""
 (function () {
   function setCookie(name, value, days) {
     var expires = "";
@@ -187,6 +193,7 @@ INJECT_JS = """\
     return null;
   }
 
+  // dark mode
   function applyMode(mode) {
     if (mode === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
@@ -194,6 +201,7 @@ INJECT_JS = """\
   var storedMode = localStorage.getItem('mirage_mode');
   if (storedMode) applyMode(storedMode);
 
+  // text scale
   function applyTextScale(scale) {
     if (!scale) scale = 1;
     document.documentElement.style.setProperty('--mirage-font-scale', String(parseFloat(scale)));
@@ -201,6 +209,7 @@ INJECT_JS = """\
   var ts = getCookie('mirage_text_scale') || '1';
   applyTextScale(ts);
 
+  // YouTube embed consent helpers
   function showAllYouTubeEmbeds() {
     document.querySelectorAll('.mirage-embed-wrapper').forEach(function(w) {
       var tpl = w.querySelector('template.mirage-embed-template');
@@ -235,6 +244,7 @@ INJECT_JS = """\
     });
   }
 
+  // build vertical controls: Dark toggle + text-size inc/dec + label
   function buildControls() {
     var container = document.createElement('div');
     container.className = 'mirage-controls';
@@ -249,14 +259,15 @@ INJECT_JS = """\
       darkBtn.textContent = isDark ? 'Light' : 'Dark';
     });
 
-    var decBtn = document.createElement('button');
-    decBtn.className = 'mirage-btn';
-    decBtn.title = 'Decrease text size';
-    decBtn.textContent = 'A-';
     var incBtn = document.createElement('button');
     incBtn.className = 'mirage-btn';
     incBtn.title = 'Increase text size';
     incBtn.textContent = 'A+';
+    var decBtn = document.createElement('button');
+    decBtn.className = 'mirage-btn';
+    decBtn.title = 'Decrease text size';
+    decBtn.textContent = 'A-';
+
     var lbl = document.createElement('div');
     lbl.style.padding = '6px 8px';
     lbl.style.fontSize = '13px';
@@ -285,8 +296,8 @@ INJECT_JS = """\
 
     updateLabel(ts || '1');
     container.appendChild(darkBtn);
-    container.appendChild(decBtn);
     container.appendChild(incBtn);
+    container.appendChild(decBtn);
     container.appendChild(lbl);
     document.body.appendChild(container);
   }
@@ -302,32 +313,60 @@ def fetch_remote(url):
     headers = {"User-Agent": USER_AGENT}
     return requests.get(url, headers=headers, timeout=15)
 
+# ---- Link rewriting improvements ----
 def rewrite_links_in_tag(tag, wiki, base_url):
+    """
+    Rewrite anchors to keep navigation within this proxy. Handles:
+      - /wiki/...  -> /{wiki}/wiki/...
+      - /w/...     -> /{wiki}/w/...
+      - absolute miraheze subdomain links -> /{sub}/wiki/...
+      - protocol-relative // -> https:
+      - query-only links '?...' -> preserve page context and prefix with /{wiki}{base_path}
+    base_url should be the original remote page URL (e.g. https://WIKI.miraheze.org/wiki/Page)
+    """
+    base_parsed = urlparse(base_url)
+    base_path = base_parsed.path or ""
     for a in tag.find_all("a", href=True):
-        href = a["href"].strip()
+        href = (a["href"] or "").strip()
+        if not href:
+            continue
         if href.startswith("javascript:") or href.startswith("mailto:"):
+            continue
+        if href.startswith("//"):
+            a["href"] = "https:" + href
             continue
         if href.startswith("http://") or href.startswith("https://"):
             parsed = urlparse(href)
             host = parsed.netloc.lower()
+            # Miraheze subdomain absolute links -> map to our proxy
             if host.endswith(".miraheze.org"):
                 sub = host.split(".")[0]
-                new = urljoin("/", f"{sub}{parsed.path}")
+                # preserve path + query
+                new = f"/{quote(sub, safe='')}{parsed.path}"
                 if parsed.query:
                     new += "?" + parsed.query
                 a["href"] = new
             else:
+                # external other hosts: open in new tab
                 a["target"] = "_blank"
-        elif href.startswith("//"):
-            a["href"] = "https:" + href
-        elif href.startswith("/"):
-            a["href"] = f"/{wiki}{href}"
-        else:
-            a["href"] = f"/{wiki}/wiki/{href}"
+            continue
+        # href starts with '/'
+        if href.startswith("/"):
+            # /wiki/... or /w/... etc -> prefix with wiki
+            a["href"] = f"/{quote(wiki, safe='')}{href}"
+            continue
+        # query-only links like ?from=... -> attach to current page path
+        if href.startswith("?"):
+            # ensure base_path exists and is a wiki path (it usually is /wiki/Page)
+            a["href"] = f"/{quote(wiki, safe='')}{base_path}{href}"
+            continue
+        # relative paths (no slash) -> assume a page name relative to /wiki/<page>
+        # map to /{wiki}/wiki/{href}
+        a["href"] = f"/{quote(wiki, safe='')}/wiki/{quote(href, safe='')}"
 
 def normalize_images_in_tag(tag, wiki, base_url):
     for img in tag.find_all("img", src=True):
-        src = img["src"].strip()
+        src = (img["src"] or "").strip()
         if src.startswith("//"):
             img["src"] = "https:" + src
         elif src.startswith("http://") or src.startswith("https://"):
@@ -337,59 +376,8 @@ def normalize_images_in_tag(tag, wiki, base_url):
         else:
             img["src"] = urljoin(base_url, src)
 
-def remove_unwanted_global(soup):
-    # Remove scripts, style tags, and remote stylesheet links
-    for tag in list(soup.find_all(["script", "style"])):
-        try:
-            tag.decompose()
-        except Exception:
-            pass
-
-    for link in list(soup.find_all("link", rel=True)):
-        try:
-            if link.get("rel") and ("stylesheet" in link.get("rel") or "preload" in link.get("rel")):
-                link.decompose()
-        except Exception:
-            pass
-
-    # Remove elements with id/class containing 'cookie' (case-insensitive)
-    for el in list(soup.find_all()):
-        if not isinstance(el, Tag):
-            continue
-        try:
-            id_attr = el.get("id", "") or ""
-            class_attr = " ".join(el.get("class", [])) if el.get("class") else ""
-            combined = (id_attr + " " + class_attr).lower()
-            if "cookie" in combined or "cookies" in combined:
-                el.decompose()
-                continue
-            text = (el.get_text(" ", strip=True) or "").lower()
-            if ("we use cookies" in text) or ("this site uses cookies" in text) or ("cookie" in text and len(text) < 200 and ("consent" in text or "accept" in text or "use cookies" in text)):
-                el.decompose()
-                continue
-        except Exception:
-            continue
-
-    # Remove other obvious header/footer selectors
-    selectors = [
-        "#mw-head", "header", "nav", ".site-header", "#p-logo", ".portal",
-        ".mw-portlet", ".sidebar", ".mw-sidebar", "#footer", ".mw-footer", ".site-footer",
-        ".siteNotice", ".sitenotice", ".printfooter", "#catlinks", ".searchbox"
-    ]
-    for sel in selectors:
-        for el in list(soup.select(sel)):
-            try:
-                el.decompose()
-            except Exception:
-                pass
-
+# ---- Category extraction (same approach as before) ----
 def find_categories_early(soup, wiki):
-    """
-    Look for categories before we strip anything.
-    Uses a whitelist of known selectors used by MediaWiki variants.
-    Returns list of (text, link) tuples or None.
-    Removes the cat container it finds to avoid duplication.
-    """
     selectors = [
         ".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks",
         "div#catlinks", "div.mw-catlinks"
@@ -415,12 +403,9 @@ def find_categories_early(soup, wiki):
                 pass
             if items:
                 return items
-    # if none found using those selectors, return None
     return None
 
 def extract_categories_from_content(content_tag, wiki):
-    """Fallback: try to extract categories from inside the content fragment."""
-    # common cat containers inside content
     for sel in [".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks"]:
         node = content_tag.select_one(sel)
         if node:
@@ -444,6 +429,49 @@ def extract_categories_from_content(content_tag, wiki):
                 return items
     return None
 
+# ---- Remove unwanted globals (robust) ----
+def remove_unwanted_global(soup):
+    for tag in list(soup.find_all(["script", "style"])):
+        try:
+            tag.decompose()
+        except Exception:
+            pass
+    for link in list(soup.find_all("link", rel=True)):
+        try:
+            if link.get("rel") and ("stylesheet" in link.get("rel") or "preload" in link.get("rel")):
+                link.decompose()
+        except Exception:
+            pass
+    # Remove cookie containers heuristically
+    for el in list(soup.find_all()):
+        if not isinstance(el, Tag):
+            continue
+        try:
+            id_attr = el.get("id", "") or ""
+            class_attr = " ".join(el.get("class", [])) if el.get("class") else ""
+            combined = (id_attr + " " + class_attr).lower()
+            if "cookie" in combined or "cookies" in combined:
+                el.decompose()
+                continue
+            text = (el.get_text(" ", strip=True) or "").lower()
+            if ("we use cookies" in text) or ("this site uses cookies" in text) or ("cookie" in text and len(text) < 200 and ("consent" in text or "accept" in text or "use cookies" in text)):
+                el.decompose()
+                continue
+        except Exception:
+            continue
+    selectors = [
+        "#mw-head", "header", "nav", ".site-header", "#p-logo", ".portal",
+        ".mw-portlet", ".sidebar", ".mw-sidebar", "#footer", ".mw-footer", ".site-footer",
+        ".siteNotice", ".sitenotice", ".printfooter", "#catlinks", ".searchbox"
+    ]
+    for sel in selectors:
+        for el in list(soup.select(sel)):
+            try:
+                el.decompose()
+            except Exception:
+                pass
+
+# ---- Templates/tables reformat (same approach) ----
 def reformat_templates_and_tables(content_tag):
     template_selectors = [
         ".infobox", ".portable-infobox", ".vertical-navbox", ".navbox",
@@ -478,7 +506,6 @@ def reformat_templates_and_tables(content_tag):
                         img["style"] = (img_style + ";max-width:100%!important;height:auto!important;display:block;").strip(";")
             except Exception:
                 continue
-
     for table in list(content_tag.find_all("table")):
         try:
             if table.has_attr("align"):
@@ -495,6 +522,7 @@ def reformat_templates_and_tables(content_tag):
         except Exception:
             continue
 
+# ---- YouTube detection & placeholders (robust) ----
 def detect_and_replace_youtube(content_tag):
     builder = BeautifulSoup("", "lxml")
     for iframe in list(content_tag.find_all("iframe", src=True)):
@@ -535,82 +563,82 @@ def detect_and_replace_youtube(content_tag):
         except Exception:
             pass
 
-def remove_unwanted_global(soup):
-    # Remove scripts, style tags, and remote stylesheet links
-    for tag in list(soup.find_all(["script", "style"])):
-        try:
-            tag.decompose()
-        except Exception:
-            pass
-
-    for link in list(soup.find_all("link", rel=True)):
-        try:
-            if link.get("rel") and ("stylesheet" in link.get("rel") or "preload" in link.get("rel")):
-                link.decompose()
-        except Exception:
-            pass
-
-    # Remove elements with id/class containing 'cookie' (case-insensitive)
-    for el in list(soup.find_all()):
-        if not isinstance(el, Tag):
-            continue
-        try:
-            id_attr = el.get("id", "") or ""
-            class_attr = " ".join(el.get("class", [])) if el.get("class") else ""
-            combined = (id_attr + " " + class_attr).lower()
-            if "cookie" in combined or "cookies" in combined:
-                el.decompose()
-                continue
-            text = (el.get_text(" ", strip=True) or "").lower()
-            if ("we use cookies" in text) or ("this site uses cookies" in text) or ("cookie" in text and len(text) < 200 and ("consent" in text or "accept" in text or "use cookies" in text)):
-                el.decompose()
-                continue
-        except Exception:
-            continue
-
-    # Remove other obvious header/footer selectors
+# ---- Category helpers (earlier and fallback) ----
+def find_categories_early(soup, wiki):
     selectors = [
-        "#mw-head", "header", "nav", ".site-header", "#p-logo", ".portal",
-        ".mw-portlet", ".sidebar", ".mw-sidebar", "#footer", ".mw-footer", ".site-footer",
-        ".siteNotice", ".sitenotice", ".printfooter", "#catlinks", ".searchbox"
+        ".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks",
+        "div#catlinks", "div.mw-catlinks"
     ]
     for sel in selectors:
-        for el in list(soup.select(sel)):
+        node = soup.select_one(sel)
+        if node:
+            anchors = node.find_all("a", href=True)
+            items = []
+            for a in anchors:
+                text = a.get_text(strip=True)
+                href = a["href"].strip()
+                if href.startswith("/wiki/"):
+                    link = f"/{wiki}{href}"
+                elif href.startswith("http://") or href.startswith("https://"):
+                    link = href
+                else:
+                    link = href
+                items.append((text, link))
             try:
-                el.decompose()
+                node.decompose()
             except Exception:
                 pass
+            if items:
+                return items
+    return None
 
+def extract_categories_from_content(content_tag, wiki):
+    for sel in [".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks"]:
+        node = content_tag.select_one(sel)
+        if node:
+            anchors = node.find_all("a", href=True)
+            items = []
+            for a in anchors:
+                text = a.get_text(strip=True)
+                href = a["href"].strip()
+                if href.startswith("/wiki/"):
+                    link = f"/{wiki}{href}"
+                elif href.startswith("http://") or href.startswith("https://"):
+                    link = href
+                else:
+                    link = href
+                items.append((text, link))
+            try:
+                node.decompose()
+            except Exception:
+                pass
+            if items:
+                return items
+    return None
+
+# ---- Main page (root) ----
 @app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route('/go', methods=['GET', 'POST'])
-def go():
-    # Accept values from both querystring and form
-    wiki = (request.values.get('wiki') or '').strip()
-    page = (request.values.get('page') or '').strip()
-
-    if not wiki or not page:
-        # missing input -> redirect back to index
-        return redirect(url_for('index'))
-
-    # sanitize wiki: allow alphanumeric, dash, underscore, dot; remove any other chars
-    wiki_safe = re.sub(r'[^A-Za-z0-9\-\_\.]', '', wiki)
-
-    if not wiki_safe:
-        return redirect(url_for('index'))
-
-    # encode page for path. We preserve slashes (for subpages) by encoding each path segment
-    # split on slash, quote each segment, then rejoin with '/'
-    segments = [quote(seg, safe='') for seg in page.split('/')]
-    page_path = '/'.join(segments)
-
-    return redirect(f'/{wiki_safe}/wiki/{page_path}', code=302)
-
+# ---- Route: normal wiki pages ----
 @app.route("/<wiki>/wiki/<path:page>")
 def page_proxy(wiki, page):
     remote_url = f"https://{wiki}.miraheze.org/wiki/{page}"
+    return fetch_and_transform(remote_url, wiki)
+
+# ---- Route: proxy for /w/* (handles index.php category pages and any index.php concerns) ----
+@app.route("/<wiki>/w/<path:rest>")
+def w_proxy(wiki, rest):
+    # rebuild remote URL including query string
+    qs = request.query_string.decode() or ""
+    remote_url = f"https://{wiki}.miraheze.org/w/{rest}"
+    if qs:
+        remote_url = remote_url + "?" + qs
+    return fetch_and_transform(remote_url, wiki)
+
+# ---- Core fetch + transform logic used by both routes ----
+def fetch_and_transform(remote_url, wiki):
     try:
         r = fetch_remote(remote_url)
     except requests.RequestException as e:
@@ -627,13 +655,13 @@ def page_proxy(wiki, page):
 
     original = BeautifulSoup(r.text, "lxml")
 
-    # Extract categories immediately (before any cleanup)
+    # extract categories early from raw HTML
     categories = find_categories_early(original, wiki)
 
-    # Now remove global unwanted elements
+    # remove unwanted global bits
     remove_unwanted_global(original)
 
-    # If categories still not found, we will try to find them inside content later
+    # find content block (strict id="content" preferred)
     content_tag = original.find(id="content")
     if not content_tag:
         candidate = original.select_one("#mw-content-text, #bodyContent, main")
@@ -647,7 +675,7 @@ def page_proxy(wiki, page):
     if not content_tag:
         return Response("No content found on remote page.", status=502)
 
-    # Defensive removal
+    # remove cookie warning if it slipped through
     c = content_tag.find(id="mw-cookiewarning-container")
     if c:
         try:
@@ -655,13 +683,21 @@ def page_proxy(wiki, page):
         except Exception:
             pass
 
+    # remove any pagetop elements inside content explicitly
+    for ptop in list(content_tag.select(".pagetop")):
+        try:
+            ptop.decompose()
+        except Exception:
+            pass
+
+    # remove edit-section links if present
     for edit in list(content_tag.select(".mw-editsection")):
         try:
             edit.decompose()
         except Exception:
             pass
 
-    # Build output document
+    # prepare new minimal doc
     doc = BeautifulSoup("<!doctype html><html><head></head><body></body></html>", "lxml")
     head = doc.head
     meta = doc.new_tag("meta", charset="utf-8")
@@ -673,7 +709,7 @@ def page_proxy(wiki, page):
     script_tag.string = INJECT_JS
     head.append(script_tag)
 
-    # Banner
+    # banner
     banner_div = doc.new_tag("div", **{"class": "mirage-banner"})
     strong = doc.new_tag("strong")
     strong.string = "You're viewing this page on Mirage, a privacy frontend to Miraheze licensed under GPL 3.0."
@@ -685,23 +721,25 @@ def page_proxy(wiki, page):
     container = doc.new_tag("div", **{"class": "mirage-container"})
     container.append(banner_div)
 
-    # Reparse content for safe manipulation
+    # reparse content fragment safely
     content_fragment = BeautifulSoup(str(content_tag), "lxml")
     content_only = content_fragment.find(id="content")
     if not content_only:
         return Response("Unexpected error extracting content.", status=500)
 
+    # rewrite links (handles '?', /w/ etc), normalize images, detect youtube, reformat templates/tables
     rewrite_links_in_tag(content_only, wiki, remote_url)
     normalize_images_in_tag(content_only, wiki, remote_url)
     detect_and_replace_youtube(content_only)
     reformat_templates_and_tables(content_only)
 
-    # If we did not find categories earlier, try to extract from content fragment
+    # fallback: extract categories from content if none found earlier
     if not categories:
         categories = extract_categories_from_content(content_only, wiki)
 
     container.append(content_only)
 
+    # append categories
     if categories:
         ul = doc.new_tag("ul", **{"class": "categories"})
         for text, link in categories:
@@ -715,6 +753,25 @@ def page_proxy(wiki, page):
     doc.body.append(container)
     final_html = str(doc)
     return Response(final_html, content_type="text/html; charset=utf-8")
+
+# ---- helper for GET requests ----
+def fetch_remote(url):
+    headers = {"User-Agent": USER_AGENT}
+    return requests.get(url, headers=headers, timeout=15)
+
+# ---- optional small /go redirect helper for your main page form (if present) ----
+@app.route('/go', methods=['GET', 'POST'])
+def go():
+    wiki = (request.values.get('wiki') or '').strip()
+    page = (request.values.get('page') or '').strip()
+    if not wiki or not page:
+        return render_template("index.html")
+    wiki_safe = "".join([c for c in wiki if c.isalnum() or c in "-_."])
+    if not wiki_safe:
+        return render_template("index.html")
+    segments = [quote(seg, safe='') for seg in page.split('/')]
+    page_path = '/'.join(segments)
+    return Response(status=302, headers={"Location": f'/{wiki_safe}/wiki/{page_path}'})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000, debug=False)
