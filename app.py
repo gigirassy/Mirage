@@ -780,7 +780,11 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     head = doc.head
     # meta: charset + viewport to ensure mobile scaling is correct
     head.append(doc.new_tag("meta", charset="utf-8"))
-    head.append(doc.new_tag("meta", name="viewport", content="width=device-width, initial-scale=1"))
+    head.append(doc.new_tag("meta", attrs={
+        "name": "viewport",
+        "content": "width=device-width, initial-scale=1"
+    }))
+
     style_tag = doc.new_tag("style")
     style_tag.string = INJECT_CSS
     head.append(style_tag)
