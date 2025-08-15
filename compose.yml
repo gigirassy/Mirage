@@ -1,0 +1,9 @@
+services:
+  mirage:
+    image: ghcr.io/gigirassy/mirage
+    container_name: mirage
+    ports:
+      - "3000:3000" # change first number if already taken
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
