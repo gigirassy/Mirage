@@ -287,13 +287,15 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
 </script>
 </head>
 <body>
+  <div class="mirage-container">
   <h1>Mirage</h1>
   <p>Mirage is a simple alternate frontend to Miraheze, inspired by Wikimore and Breezewiki.</p>
+  <p>It will not track you in any form, and only debug logs are kept.</p>
   <p>To view a Miraheze page, simply fill out this form:</p>
       <form id="openForm" action="/go" method="get" novalidate>
       <label for="wiki">Wiki name (subdomain, e.g. "examplewiki")</label>
       <input id="wiki" name="wiki" type="text" placeholder="examplewiki" required />
-
+      <br>
       <label for="page">Page name (use wiki page title, e.g. "Main_Page" or "Some/Page")</label>
       <input id="page" name="page" type="text" placeholder="Main_Page" required />
 
@@ -301,5 +303,6 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 13px; color
         <button id="openBtn" type="submit">Open article</button>
         <button id="clearBtn" type="button">Clear</button>
       </div>
+  <div></div>
 </body>
 </html>
