@@ -1,6 +1,6 @@
 services:
   mirage:
-    image: ghcr.io/gigirassy/mirage
+    image: ghcr.io/gigirassy/mirage:main
     container_name: mirage
     ports:
       - "3000:3000" # change first number if already taken
