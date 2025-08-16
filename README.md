@@ -12,11 +12,7 @@ URLs use the exact same format as Breezewiki, and custom domains are also accoun
 Docker is recommended.
 
 1. Clone this repo, ``cd`` into it
-2.  ``echo "MIRAGE_CACHE_KEY=$(python3 - <<'PY'
-import base64, os
-print(base64.urlsafe_b64encode(os.urandom(32)).decode())
-PY
-)" > .env && chmod 600 .env``
+2.  ``echo "MIRAGE_CACHE_KEY=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" > .env && chmod 600 .env``
 3. ``mkdir -p ./cache && chmod 700 cache``
 4. Modify compose file to your liking. You can change host port, cache length, etc...
 5. ``docker compose up -d``
