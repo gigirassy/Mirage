@@ -9,9 +9,10 @@ URLs use the exact same format as Breezewiki, and custom domains are also accoun
 
 Docker is recommended.
 
-1. Clone this repo, cd into it
-2. Modify compose file to your liking.
-3. docker compose up -d
+1. Clone this repo, ``cd`` into it
+2. ``mkdir -p ./cache && chmod 700 cache``
+3. Modify compose file to your liking. You can change host port, cache length, etc...
+4. ``docker compose up -d``
 
 ## Instances
 Cloudflare is not allowed.
