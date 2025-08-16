@@ -1,6 +1,8 @@
 # Mirage
 Mirage is an open privacy frontend to Miraheze. It uses an extremely light interface, focused on accessibility and ease of reading. Font size can be increased, and it has an easy-on-the-eyes dark mode. This configuration is done with cookies that never leave a browser.
 
+In addition, Cache is E2E by default.
+
 Keep in mind Mirage is heavily WIP.
 
 URLs use the exact same format as Breezewiki, and custom domains are also accounted for.
@@ -10,9 +12,14 @@ URLs use the exact same format as Breezewiki, and custom domains are also accoun
 Docker is recommended.
 
 1. Clone this repo, ``cd`` into it
-2. ``mkdir -p ./cache && chmod 700 cache``
-3. Modify compose file to your liking. You can change host port, cache length, etc...
-4. ``docker compose up -d``
+2.  ``echo "MIRAGE_CACHE_KEY=$(python3 - <<'PY'
+import base64, os
+print(base64.urlsafe_b64encode(os.urandom(32)).decode())
+PY
+)" > .env && chmod 600 .env``
+3. ``mkdir -p ./cache && chmod 700 cache``
+4. Modify compose file to your liking. You can change host port, cache length, etc...
+5. ``docker compose up -d``
 
 ## Instances
 Cloudflare is not allowed.
