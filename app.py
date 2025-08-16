@@ -4,6 +4,9 @@ import requests
 from bs4 import BeautifulSoup, Tag
 from urllib.parse import urlparse, urljoin, quote
 import os
+import hashlib
+import json
+import time
 
 app = Flask(__name__)
 
@@ -431,7 +434,152 @@ INJECT_JS = r"""
 })();
 """
 
+CACHE_DIR = os.getenv("MIRAGE_CACHE_DIR", "./cache")
+MAX_CACHE_BYTES = int(os.getenv("MIRAGE_CACHE_MAX", str(40 * 1024 * 1024)))  # 40MB default
+CACHE_TTL = int(os.getenv("MIRAGE_CACHE_TTL", str(7 * 24 * 3600)))  # 7 days default (in seconds)
+_META_FILENAME = "meta.json"
+
 # --- Helper functions ---
+
+def _ensure_cache_dir():
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        meta_path = os.path.join(CACHE_DIR, _META_FILENAME)
+        if not os.path.exists(meta_path):
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump({}, f)
+    except Exception:
+        # don't break the app if cache can't be created
+        return
+
+def _meta_path():
+    return os.path.join(CACHE_DIR, _META_FILENAME)
+
+def _load_meta():
+    try:
+        p = _meta_path()
+        if not os.path.exists(p):
+            return {}
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def _save_meta(meta):
+    try:
+        p = _meta_path()
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+        os.replace(tmp, p)
+    except Exception:
+        # not critical
+        pass
+
+def _key_to_filename(key: str) -> str:
+    h = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"{h}.html"
+
+def _prune_cache_if_needed(meta):
+    """
+    Ensure total size <= MAX_CACHE_BYTES. Remove oldest by atime until under limit.
+    `meta` is a dict mapping filename-> { "size": int, "atime": float, "mtime": float, "key": str }
+    """
+    try:
+        total = sum(v.get("size", 0) for v in meta.values())
+        if total <= MAX_CACHE_BYTES:
+            return meta
+        # sort by atime (least recently used first)
+        items = sorted(meta.items(), key=lambda kv: kv[1].get("atime", 0))
+        for fname, info in items:
+            fpath = os.path.join(CACHE_DIR, fname)
+            try:
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+            except Exception:
+                pass
+            total -= info.get("size", 0)
+            meta.pop(fname, None)
+            if total <= MAX_CACHE_BYTES:
+                break
+        _save_meta(meta)
+    except Exception:
+        pass
+    return meta
+
+def cache_get(key: str):
+    """
+    Return cached HTML string if valid and not expired, otherwise None.
+    Updates access time (atime) on hit.
+    """
+    try:
+        _ensure_cache_dir()
+        fname = _key_to_filename(key)
+        fpath = os.path.join(CACHE_DIR, fname)
+        if not os.path.exists(fpath):
+            # ensure metadata cleaned up if needed
+            meta = _load_meta()
+            if fname in meta:
+                meta.pop(fname, None)
+                _save_meta(meta)
+            return None
+        stat = os.stat(fpath)
+        now = time.time()
+        # check TTL
+        if (now - stat.st_mtime) > CACHE_TTL:
+            try:
+                os.remove(fpath)
+            except Exception:
+                pass
+            meta = _load_meta()
+            if fname in meta:
+                meta.pop(fname, None)
+                _save_meta(meta)
+            return None
+        # read content
+        with open(fpath, "r", encoding="utf-8") as f:
+            html = f.read()
+        # update meta atime
+        meta = _load_meta()
+        entry = meta.get(fname, {})
+        entry["atime"] = now
+        entry["mtime"] = stat.st_mtime
+        entry["size"] = stat.st_size
+        entry["key"] = key
+        meta[fname] = entry
+        _save_meta(meta)
+        return html
+    except Exception:
+        return None
+
+def cache_set(key: str, html: str):
+    """
+    Save html under key. Prune cache if needed. Returns True on success.
+    """
+    try:
+        _ensure_cache_dir()
+        fname = _key_to_filename(key)
+        fpath = os.path.join(CACHE_DIR, fname)
+        tmp = fpath + ".tmp"
+        # write atomically
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(html)
+        os.replace(tmp, fpath)
+        stat = os.stat(fpath)
+        now = time.time()
+        meta = _load_meta()
+        meta[fname] = {
+            "key": key,
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "atime": now
+        }
+        # prune and save
+        meta = _prune_cache_if_needed(meta)
+        _save_meta(meta)
+        return True
+    except Exception:
+        return False
 
 def derive_remote_subdomain(wiki_param: str) -> str:
     # If wiki_param contains dot (custom host), remote subdomain is first label; else it's the wiki_param
@@ -805,6 +953,20 @@ def detect_and_replace_youtube(content_tag):
 
 # --- Core fetch and transform ---
 def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
+    """
+    This version attempts to serve from the file cache first (HTML only).
+    Cache key includes wiki_param|mode|path|qs so different pages/queries are separate.
+    """
+    # build canonical cache key
+    cache_key = f"{wiki_param}|{mode}|{path}|{qs}"
+
+    # Try cache first (only cache text/html pages we previously stored)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        # Return cached HTML response directly
+        return Response(cached, content_type="text/html; charset=utf-8")
+
+    # Not cached -> continue original flow to fetch + transform
     remote_sub = derive_remote_subdomain(wiki_param)
     if mode == 'wiki':
         remote_url = f"https://{remote_sub}.miraheze.org/wiki/{path}"
@@ -877,7 +1039,6 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     # build minimal doc
     doc = BeautifulSoup("<!doctype html><html><head></head><body></body></html>", "lxml")
     head = doc.head
-    # use attrs dict to avoid new_tag name kw collision
     head.append(doc.new_tag("meta", attrs={"charset": "utf-8"}))
     head.append(doc.new_tag("meta", attrs={"name": "viewport", "content": "width=device-width, initial-scale=1"}))
     style_tag = doc.new_tag("style")
@@ -929,6 +1090,13 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
 
     doc.body.append(container)
     final_html = str(doc)
+
+    # cache the generated HTML (best-effort; failures are non-fatal)
+    try:
+        cache_set(cache_key, final_html)
+    except Exception:
+        pass
+
     return Response(final_html, content_type="text/html; charset=utf-8")
 
 # --- Routes ---
