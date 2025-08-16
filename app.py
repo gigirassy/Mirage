@@ -7,6 +7,8 @@ import os
 import hashlib
 import json
 import time
+import gzip
+from pathlib import Path
 
 app = Flask(__name__)
 
@@ -439,23 +441,31 @@ MAX_CACHE_BYTES = int(os.getenv("MIRAGE_CACHE_MAX", str(40 * 1024 * 1024)))  # 4
 CACHE_TTL = int(os.getenv("MIRAGE_CACHE_TTL", str(7 * 24 * 3600)))  # 7 days default
 _META_FILENAME = "meta.json"
 _MIRAGE_CACHE_KEY = os.getenv("MIRAGE_CACHE_KEY", "").strip()
+
+
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+    _FERNET_AVAILABLE = True
+except Exception:
+    Fernet = None
+    InvalidToken = Exception
+    _FERNET_AVAILABLE = False
+
 FERNET = None
 if _MIRAGE_CACHE_KEY:
-    if Fernet is None:
-        # cryptography not installed; fallback later
+    if not _FERNET_AVAILABLE:
+        # cryptography not installed — cannot create Fernet; we'll fallback to gzip storage
         FERNET = None
     else:
-        # key may already be base64; ensure it is bytes
         try:
+            # Fernet expects a urlsafe_base64-encoded 32-byte key
             key_bytes = _MIRAGE_CACHE_KEY.encode() if isinstance(_MIRAGE_CACHE_KEY, str) else _MIRAGE_CACHE_KEY
-            # ensure it's valid: Fernet requires a urlsafe_base64-encoded 32-byte key
             FERNET = Fernet(key_bytes)
         except Exception:
-            # invalid key supplied -> disable fernet (fallback to gzip)
+            # invalid key -> disable Fernet (fallback to gzip)
             FERNET = None
 else:
     FERNET = None
-# --- Helper functions ---
 
 # ---- file-cache helpers (encrypted when FERNET != None) ----
 def _ensure_cache_dir():
