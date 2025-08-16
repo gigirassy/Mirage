@@ -411,54 +411,124 @@ def fetch_remote(url):
 # For clarity and to keep this patch self-contained, I include those helpers unchanged below:
 
 #--- link rewriting (aware of remote_sub and custom_host) ---
+from urllib.parse import urlparse, urljoin, quote
+
 def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
+    """
+    Rewrite anchors to keep navigation within this proxy.
+    Special handling for Category pagination:
+      - Query-only ?... links on /wiki/Category:... pages are rewritten to
+        /{host}/w/index.php?title=Category:...&... so upstream handles pagination correctly.
+      - Absolute /wiki/Category:... links with query are likewise rewritten to index.php.
+    """
     base_parsed = urlparse(base_url)
     base_path = base_parsed.path or ""
+    base_query = base_parsed.query or ""
+
+    # helper to choose host segment (custom host if present, else remote_sub)
+    def host_segment():
+        return custom_host if custom_host else remote_sub
+
     for a in tag.find_all("a", href=True):
         raw = (a["href"] or "").strip()
         if not raw:
             continue
+        # leave javascript/mailto alone
         if raw.startswith("javascript:") or raw.startswith("mailto:"):
             continue
+
+        # fragment-only links: do NOT rewrite to wiki path (important for anchors like #mw-pages)
         if raw.startswith("#"):
             a["href"] = raw
             continue
+
+        # protocol-relative -> https:
         if raw.startswith("//"):
             a["href"] = "https:" + raw
             continue
+
+        # absolute URLs
         if raw.startswith("http://") or raw.startswith("https://"):
             parsed = urlparse(raw)
             host = parsed.netloc.lower()
+            # handle miraheze absolute links
             if host.endswith(".miraheze.org"):
                 sub = host.split(".")[0]
-                if custom_host and sub == remote_sub:
-                    new = f"/{quote(custom_host, safe='')}{parsed.path}"
+                seg = host_segment() if sub == remote_sub and custom_host else sub
+                # If it's a /wiki/Category:... with query, rewrite to /w/index.php?title=...
+                if parsed.path.startswith("/wiki/Category:") and parsed.query:
+                    title = parsed.path[len("/wiki/"):]  # "Category:Name"
+                    new = f"/{quote(seg, safe='')}/w/index.php?title={quote(title, safe='')}"
+                    if parsed.query:
+                        new += "&" + parsed.query
+                    if parsed.fragment:
+                        new += "#" + parsed.fragment
+                    a["href"] = new
                 else:
-                    new = f"/{quote(sub, safe='')}{parsed.path}"
+                    new = f"/{quote(seg, safe='')}{parsed.path}"
+                    if parsed.query:
+                        new += "?" + parsed.query
+                    if parsed.fragment:
+                        new += "#" + parsed.fragment
+                    a["href"] = new
+            else:
+                # external hosts: open in new tab
+                a["target"] = "_blank"
+            continue
+
+        # root-relative links (start with '/')
+        if raw.startswith("/"):
+            parsed = urlparse(raw)
+            # If link points to /wiki/Category:... and includes query (pagefrom/from), map to index.php form
+            if parsed.path.startswith("/wiki/Category:") and parsed.query:
+                seg = host_segment()
+                title = parsed.path[len("/wiki/"):]  # "Category:Name"
+                new = f"/{quote(seg, safe='')}/w/index.php?title={quote(title, safe='')}"
                 if parsed.query:
-                    new += "?" + parsed.query
+                    new += "&" + parsed.query
                 if parsed.fragment:
                     new += "#" + parsed.fragment
                 a["href"] = new
-            else:
-                a["target"] = "_blank"
+                continue
+            # otherwise, prefix with wiki (use custom_host if present)
+            seg = host_segment()
+            a["href"] = f"/{quote(seg, safe='')}{raw}"
             continue
-        if raw.startswith("/"):
-            if custom_host:
-                a["href"] = f"/{quote(custom_host, safe='')}{raw}"
-            else:
-                a["href"] = f"/{quote(remote_sub, safe='')}{raw}"
-            continue
+
+        # query-only links (start with '?')
         if raw.startswith("?"):
-            if custom_host:
-                a["href"] = f"/{quote(custom_host, safe='')}{base_path}{raw}"
-            else:
-                a["href"] = f"/{quote(remote_sub, safe='')}{base_path}{raw}"
+            # If the current page is a wiki Category page, rewrite to index.php with title param
+            # Detect category via base_path (/wiki/Category:...) or base_query (title=Category:...)
+            if base_path.startswith("/wiki/Category:") or ("title=Category:" in base_query):
+                # derive title
+                if base_path.startswith("/wiki/"):
+                    title = base_path[len("/wiki/"):]  # "Category:Name"
+                else:
+                    # fallback to extracting title from base_query if possible
+                    # naive extraction: find "title=" substring
+                    title = ""
+                    for part in base_query.split("&"):
+                        if part.startswith("title="):
+                            title = part[len("title="):]
+                            break
+                seg = host_segment()
+                # construct index.php URL: /{seg}/w/index.php?title={title}{raw}
+                # raw already begins with "?", so append directly
+                if title:
+                    a["href"] = f"/{quote(seg, safe='')}/w/index.php?title={quote(title, safe='')}{raw}"
+                else:
+                    # fallback: attach to base path (preserve behavior)
+                    a["href"] = f"/{quote(seg, safe='')}{base_path}{raw}"
+                continue
+            # Not a category page: attach query to base_path (maintain previous behavior)
+            seg = host_segment()
+            a["href"] = f"/{quote(seg, safe='')}{base_path}{raw}"
             continue
-        if custom_host:
-            a["href"] = f"/{quote(custom_host, safe='')}/wiki/{quote(raw, safe='')}"
-        else:
-            a["href"] = f"/{quote(remote_sub, safe='')}/wiki/{quote(raw, safe='')}"
+
+        # relative paths (no leading slash): treat as wiki page name
+        seg = host_segment()
+        a["href"] = f"/{quote(seg, safe='')}/wiki/{quote(raw, safe='')}"
+
 
 def normalize_images_in_tag(tag, remote_sub, base_url):
     for img in tag.find_all("img", src=True):
