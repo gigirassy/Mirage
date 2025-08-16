@@ -2,6 +2,7 @@ services:
   mirage:
     image: ghcr.io/gigirassy/mirage:main
     container_name: mirage
+    env_file: .env
     ports:
       - "3000:3000" # change first if already taken
     environment:
