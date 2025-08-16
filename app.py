@@ -436,20 +436,36 @@ INJECT_JS = r"""
 
 CACHE_DIR = os.getenv("MIRAGE_CACHE_DIR", "./cache")
 MAX_CACHE_BYTES = int(os.getenv("MIRAGE_CACHE_MAX", str(40 * 1024 * 1024)))  # 40MB default
-CACHE_TTL = int(os.getenv("MIRAGE_CACHE_TTL", str(7 * 24 * 3600)))  # 7 days default (in seconds)
+CACHE_TTL = int(os.getenv("MIRAGE_CACHE_TTL", str(7 * 24 * 3600)))  # 7 days default
 _META_FILENAME = "meta.json"
-
+_MIRAGE_CACHE_KEY = os.getenv("MIRAGE_CACHE_KEY", "").strip()
+FERNET = None
+if _MIRAGE_CACHE_KEY:
+    if Fernet is None:
+        # cryptography not installed; fallback later
+        FERNET = None
+    else:
+        # key may already be base64; ensure it is bytes
+        try:
+            key_bytes = _MIRAGE_CACHE_KEY.encode() if isinstance(_MIRAGE_CACHE_KEY, str) else _MIRAGE_CACHE_KEY
+            # ensure it's valid: Fernet requires a urlsafe_base64-encoded 32-byte key
+            FERNET = Fernet(key_bytes)
+        except Exception:
+            # invalid key supplied -> disable fernet (fallback to gzip)
+            FERNET = None
+else:
+    FERNET = None
 # --- Helper functions ---
 
+# ---- file-cache helpers (encrypted when FERNET != None) ----
 def _ensure_cache_dir():
     try:
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        meta_path = os.path.join(CACHE_DIR, _META_FILENAME)
+        Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+        meta_path = _meta_path()
         if not os.path.exists(meta_path):
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump({}, f)
     except Exception:
-        # don't break the app if cache can't be created
         return
 
 def _meta_path():
@@ -473,23 +489,17 @@ def _save_meta(meta):
             json.dump(meta, f)
         os.replace(tmp, p)
     except Exception:
-        # not critical
         pass
 
 def _key_to_filename(key: str) -> str:
     h = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    return f"{h}.html"
+    return f"{h}.bin"
 
 def _prune_cache_if_needed(meta):
-    """
-    Ensure total size <= MAX_CACHE_BYTES. Remove oldest by atime until under limit.
-    `meta` is a dict mapping filename-> { "size": int, "atime": float, "mtime": float, "key": str }
-    """
     try:
         total = sum(v.get("size", 0) for v in meta.values())
         if total <= MAX_CACHE_BYTES:
             return meta
-        # sort by atime (least recently used first)
         items = sorted(meta.items(), key=lambda kv: kv[1].get("atime", 0))
         for fname, info in items:
             fpath = os.path.join(CACHE_DIR, fname)
@@ -510,22 +520,22 @@ def _prune_cache_if_needed(meta):
 def cache_get(key: str):
     """
     Return cached HTML string if valid and not expired, otherwise None.
-    Updates access time (atime) on hit.
+    Encrypted files are decrypted using FERNET when available. Fallback uses gzip.
     """
     try:
         _ensure_cache_dir()
         fname = _key_to_filename(key)
         fpath = os.path.join(CACHE_DIR, fname)
         if not os.path.exists(fpath):
-            # ensure metadata cleaned up if needed
             meta = _load_meta()
             if fname in meta:
                 meta.pop(fname, None)
                 _save_meta(meta)
             return None
+
         stat = os.stat(fpath)
         now = time.time()
-        # check TTL
+        # TTL check (based on mtime)
         if (now - stat.st_mtime) > CACHE_TTL:
             try:
                 os.remove(fpath)
@@ -536,9 +546,42 @@ def cache_get(key: str):
                 meta.pop(fname, None)
                 _save_meta(meta)
             return None
-        # read content
-        with open(fpath, "r", encoding="utf-8") as f:
-            html = f.read()
+
+        # read bytes
+        with open(fpath, "rb") as f:
+            blob = f.read()
+
+        if FERNET is not None:
+            try:
+                decrypted = FERNET.decrypt(blob)
+                html = decrypted.decode("utf-8")
+            except InvalidToken:
+                # can't decrypt -> remove corrupted/unreadable cache entry
+                try:
+                    os.remove(fpath)
+                except Exception:
+                    pass
+                meta = _load_meta()
+                if fname in meta:
+                    meta.pop(fname, None)
+                    _save_meta(meta)
+                return None
+        else:
+            # fallback: gzip-compressed storage
+            try:
+                html = gzip.decompress(blob).decode("utf-8")
+            except Exception:
+                # unreadable -> remove
+                try:
+                    os.remove(fpath)
+                except Exception:
+                    pass
+                meta = _load_meta()
+                if fname in meta:
+                    meta.pop(fname, None)
+                    _save_meta(meta)
+                return None
+
         # update meta atime
         meta = _load_meta()
         entry = meta.get(fname, {})
@@ -554,16 +597,26 @@ def cache_get(key: str):
 
 def cache_set(key: str, html: str):
     """
-    Save html under key. Prune cache if needed. Returns True on success.
+    Save html under key. If FERNET is set, persist encrypted bytes; else gzip compress.
+    Returns True on success.
     """
     try:
         _ensure_cache_dir()
         fname = _key_to_filename(key)
         fpath = os.path.join(CACHE_DIR, fname)
         tmp = fpath + ".tmp"
-        # write atomically
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(html)
+
+        if FERNET is not None:
+            payload = FERNET.encrypt(html.encode("utf-8"))
+            # write bytes
+            with open(tmp, "wb") as f:
+                f.write(payload)
+        else:
+            # fallback: gzip-compress text (not encrypted)
+            blob = gzip.compress(html.encode("utf-8"))
+            with open(tmp, "wb") as f:
+                f.write(blob)
+
         os.replace(tmp, fpath)
         stat = os.stat(fpath)
         now = time.time()
@@ -574,7 +627,6 @@ def cache_set(key: str, html: str):
             "mtime": stat.st_mtime,
             "atime": now
         }
-        # prune and save
         meta = _prune_cache_if_needed(meta)
         _save_meta(meta)
         return True
