@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, Response, render_template, request
+from flask import Flask, Response, render_template, request, jsonify
 import requests
 from bs4 import BeautifulSoup, Tag
 from urllib.parse import urlparse, urljoin, quote
@@ -12,7 +12,7 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
 )
 
-# Improved responsive CSS + gentler light mode + gallery improvements
+# --- CSS (responsive, gentle light mode, gallery, vertical controls, search panel) ---
 INJECT_CSS = r"""
 :root {
   --page-bg: #f6f8fa;
@@ -27,11 +27,7 @@ INJECT_CSS = r"""
   --control-size: 44px;
   --gap: 10px;
 }
-/* Prevent iOS Safari auto text-size shrinking */
-html, body {
-  -webkit-text-size-adjust: 100%;
-  -ms-text-size-adjust: 100%;
-}
+html, body { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
 html.dark {
   --page-bg: #071120;
   --container-bg: #0a1724;
@@ -47,10 +43,8 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: 16px; /* base for rem calculations */
+  font-size: 16px;
 }
-
-/* Responsive container: width 100% with max-width */
 .mirage-container {
   width: 100%;
   max-width: var(--container-max-width);
@@ -64,8 +58,6 @@ body {
   box-sizing: border-box;
   overflow-wrap: break-word;
 }
-
-/* Banner */
 .mirage-banner {
   border-top: 1px solid rgba(0,0,0,0.04);
   padding-top: 12px;
@@ -74,64 +66,32 @@ body {
   color: var(--muted);
   display: block;
 }
-.mirage-banner strong {
-  color: var(--text);
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 600;
-}
-
-/* Content text sizing uses rem and the --mirage-font-scale variable */
+.mirage-banner strong { color: var(--text); display: block; margin-bottom: 6px; font-weight: 600; }
 #content {
   line-height: 1.65;
-  font-size: calc(1rem * var(--mirage-font-scale)); /* 1rem == 16px */
+  font-size: calc(1rem * var(--mirage-font-scale));
   box-sizing: border-box;
   word-break: break-word;
 }
-#content h1, #content h2, #content h3 {
-  color: var(--accent-strong);
-  margin-top: 1.2rem;
-  margin-bottom: 0.6rem;
-}
+#content h1, #content h2, #content h3 { color: var(--accent-strong); margin-top: 1.2rem; margin-bottom: 0.6rem; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* Hide pagetop and vector pre-content markers */
+/* hide pagetop and vector pre-content markers */
 #content .pagetop,
 .vector-body-before-content { display: none !important; visibility: hidden !important; }
 
-/* Gallery: flexible responsive layout */
-.mirage-gallery {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gap);
-  margin: 0.6rem 0;
-  justify-content: flex-start;
-  align-items: flex-start;
-}
-.mirage-gallery-item {
-  box-sizing: border-box;
-  flex: 0 1 calc(33.333% - var(--gap));
-  max-width: calc(33.333% - var(--gap));
-  text-align: center;
-}
-.mirage-gallery-item img {
-  width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 6px;
-}
-.mirage-gallery-item .caption {
-  font-size: 0.8125rem;
-  color: var(--muted);
-  margin-top: 6px;
-  line-height: 1.25;
-}
+/* Gallery styles */
+.mirage-gallery { display: flex; flex-wrap: wrap; gap: var(--gap); margin: 0.6rem 0; justify-content: flex-start; align-items: flex-start; }
+.mirage-gallery-item { box-sizing: border-box; flex: 0 1 calc(33.333% - var(--gap)); max-width: calc(33.333% - var(--gap)); text-align: center; }
+.mirage-gallery-item img { width: 100%; height: auto; display: block; border-radius: 6px; }
+.mirage-gallery-item .caption { font-size: 0.8125rem; color: var(--muted); margin-top: 6px; line-height: 1.25; }
+@media (max-width: 880px) { .mirage-gallery-item { flex: 0 1 calc(50% - var(--gap)); max-width: calc(50% - var(--gap)); } }
+@media (max-width: 520px) { .mirage-gallery-item { flex: 0 1 100%; max-width: 100%; } }
 
-/* Ensure images scale within content */
 #content img { max-width: 100%; height: auto; display: block; margin: 0.6rem 0; }
 
-/* Templates and infoboxes become full-width and non-floating */
+/* templates / infoboxes / navboxes: responsive */
 #content .infobox,
 #content .portable-infobox,
 #content .vertical-navbox,
@@ -152,7 +112,7 @@ a:hover { text-decoration: underline; }
   box-sizing: border-box !important;
 }
 
-/* Tables: center by default */
+/* Tables: center by default unless alignment/float explicitly set */
 #content table {
   margin-left: auto;
   margin-right: auto;
@@ -163,35 +123,17 @@ a:hover { text-decoration: underline; }
 #content table.floatleft,
 #content table.floatright,
 #content table[align],
-#content table[style*="float"] {
-  margin-left: 0;
-  margin-right: 0;
-}
+#content table[style*="float"] { margin-left: 0; margin-right: 0; }
 
 /* YouTube placeholder */
 .mirage-embed-wrapper { margin: 0.6rem 0; text-align: center; }
-.mirage-yt-placeholder {
-  background: rgba(0,0,0,0.03);
-  padding: 10px;
-  border-radius: 6px;
-  display: inline-block;
-  max-width: 100%;
-}
+.mirage-yt-placeholder { background: rgba(0,0,0,0.03); padding: 10px; border-radius: 6px; display: inline-block; max-width: 100%; }
 .mirage-yt-placeholder p { margin: 0 0 8px 0; color: var(--muted); font-size: 0.875rem; }
 .mirage-yt-allow { background: var(--accent); color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
 .mirage-yt-allow:hover { background: var(--accent-strong); }
 
-/* Controls: vertical stack */
-.mirage-controls {
-  position: fixed;
-  right: 12px;
-  top: 12px;
-  z-index: 1200;
-  display:flex;
-  flex-direction: column;
-  gap:8px;
-  align-items: flex-end;
-}
+/* vertical controls */
+.mirage-controls { position: fixed; right: 12px; top: 12px; z-index: 1200; display:flex; flex-direction: column; gap:8px; align-items: flex-end; }
 .mirage-btn {
   background: var(--container-bg);
   color: var(--text);
@@ -205,17 +147,46 @@ a:hover { text-decoration: underline; }
 }
 .mirage-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* Categories */
 ul.categories { list-style: none; padding: 0; margin-top: 1.2rem; border-top: 1px solid rgba(0,0,0,0.04); padding-top: 8px; }
 ul.categories li { display: inline; margin-right: 0.6rem; font-size: 0.8125rem; color: var(--muted); }
 
-/* Responsive adjustments for small screens */
+/* Search panel (right-side slide-in) */
+.mirage-search-panel {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  width: 360px;
+  max-width: calc(100% - 48px);
+  height: calc(100% - 24px);
+  background: var(--container-bg);
+  box-shadow: 0 8px 30px rgba(11,18,32,0.12);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  z-index: 1400;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.mirage-search-panel header { display:flex; align-items:center; gap:8px; margin-bottom: 8px; }
+.mirage-search-panel input[type="search"] {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+.mirage-search-panel .mirage-search-close { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 6px; }
+.mirage-search-panel .mirage-search-results { overflow: auto; padding: 4px; margin-top: 6px; flex: 1; }
+.mirage-search-result { padding: 8px; border-radius: 6px; margin-bottom: 6px; background: rgba(0,0,0,0.02); cursor: pointer; }
+.mirage-search-result a { color: var(--accent); text-decoration: none; display: block; }
+.mirage-search-result .muted { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+
 @media (max-width: 880px) {
-  .mirage-container {
-    margin: 16px auto;
-    padding-left: 14px;
-    padding-right: 14px;
-  }
+  .mirage-container { margin: 16px auto; padding-left: 14px; padding-right: 14px; }
   .mirage-gallery-item { flex: 0 1 calc(50% - var(--gap)); max-width: calc(50% - var(--gap)); }
   .mirage-controls { right: 8px; top: 8px; }
   .mirage-btn { padding: 6px 6px; font-size: 0.8125rem; min-width: 40px; }
@@ -225,10 +196,11 @@ ul.categories li { display: inline; margin-right: 0.6rem; font-size: 0.8125rem; 
   .mirage-gallery-item { flex: 0 1 100%; max-width: 100%; }
   .mirage-controls { right: 8px; top: 8px; }
   .mirage-btn { padding: 5px 6px; font-size: 0.8125rem; min-width: 36px; }
+  .mirage-search-panel { right: 8px; top: 8px; width: calc(100% - 16px); height: calc(100% - 16px); padding: 10px; border-radius: 6px; }
 }
 """
 
-# Keep the same JS (dark mode, text-scale cookie, YouTube consent)
+# --- JS (controls, search UI, youtube consent) ---
 INJECT_JS = r"""
 (function () {
   function setCookie(name, value, days) {
@@ -251,7 +223,6 @@ INJECT_JS = r"""
     return null;
   }
 
-  // Apply saved dark mode
   function applyMode(mode) {
     if (mode === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
@@ -259,7 +230,6 @@ INJECT_JS = r"""
   var storedMode = localStorage.getItem('mirage_mode');
   if (storedMode) applyMode(storedMode);
 
-  // Apply saved text scale (cookie)
   function applyTextScale(scale) {
     if (!scale) scale = 1;
     document.documentElement.style.setProperty('--mirage-font-scale', String(parseFloat(scale)));
@@ -267,7 +237,6 @@ INJECT_JS = r"""
   var ts = getCookie('mirage_text_scale') || '1';
   applyTextScale(ts);
 
-  // YouTube consent handling
   function showAllYouTubeEmbeds() {
     document.querySelectorAll('.mirage-embed-wrapper').forEach(function(w) {
       var tpl = w.querySelector('template.mirage-embed-template');
@@ -301,7 +270,96 @@ INJECT_JS = r"""
     });
   }
 
-  // Build vertical controls and label
+  function currentWikiIdentifier() {
+    var parts = window.location.pathname.split('/');
+    for (var i=0;i<parts.length;i++) {
+      if (parts[i]) return parts[i];
+    }
+    return null;
+  }
+
+  var searchPanel = null;
+  var searchInput = null;
+  var searchResults = null;
+  var searchDebounce = null;
+
+  function closeSearchPanel() {
+    if (searchPanel) {
+      searchPanel.parentNode.removeChild(searchPanel);
+      searchPanel = null;
+      searchInput = null;
+      searchResults = null;
+    }
+  }
+
+  function openSearchPanel() {
+    if (searchPanel) return;
+    var wiki = currentWikiIdentifier() || '';
+    searchPanel = document.createElement('div');
+    searchPanel.className = 'mirage-search-panel';
+    var header = document.createElement('header');
+    var input = document.createElement('input');
+    input.type = 'search';
+    input.placeholder = 'Search article prefix...';
+    input.autocomplete = 'off';
+    input.autocapitalize = 'none';
+    input.spellcheck = false;
+    header.appendChild(input);
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'mirage-search-close';
+    closeBtn.type = 'button';
+    closeBtn.innerText = '✕';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', closeSearchPanel);
+    header.appendChild(closeBtn);
+    searchPanel.appendChild(header);
+    var results = document.createElement('div');
+    results.className = 'mirage-search-results';
+    searchPanel.appendChild(results);
+    document.body.appendChild(searchPanel);
+    searchInput = input;
+    searchResults = results;
+    setTimeout(function(){ input.focus(); }, 40);
+    input.addEventListener('input', function (ev) {
+      var q = (input.value || '').trim();
+      if (searchDebounce) clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(function () { performSearch(wiki, q); }, 300);
+    });
+  }
+
+  function performSearch(wiki, q) {
+    if (!searchResults) return;
+    searchResults.innerHTML = '<div style="padding:8px;color:var(--muted)">Searching…</div>';
+    var url = '/api/search?wiki=' + encodeURIComponent(wiki) + '&q=' + encodeURIComponent(q);
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (res) { return res.json(); })
+      .then(function (data) { renderSearchResults(data.results || []); })
+      .catch(function () { searchResults.innerHTML = '<div style="padding:8px;color:var(--muted)">Search failed.</div>'; });
+  }
+
+  function renderSearchResults(items) {
+    if (!searchResults) return;
+    if (!items || items.length === 0) {
+      searchResults.innerHTML = '<div style="padding:8px;color:var(--muted)">No results.</div>';
+      return;
+    }
+    var html = '';
+    for (var i=0;i<items.length;i++) {
+      var it = items[i];
+      html += '<div class="mirage-search-result"><a href="' + it.href + '">' + escapeHtml(it.title) + '</a></div>';
+    }
+    searchResults.innerHTML = html;
+    Array.from(searchResults.querySelectorAll('.mirage-search-result a')).forEach(function (el) {
+      el.addEventListener('click', function (ev) { closeSearchPanel(); });
+    });
+  }
+
+  function escapeHtml(s) {
+    return (s + '').replace(/[&<>"']/g, function (m) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];
+    });
+  }
+
   function buildControls() {
     var container = document.createElement('div');
     container.className = 'mirage-controls';
@@ -324,6 +382,7 @@ INJECT_JS = r"""
     decBtn.className = 'mirage-btn';
     decBtn.title = 'Decrease text size';
     decBtn.textContent = 'A-';
+
     var lbl = document.createElement('div');
     lbl.style.padding = '6px 8px';
     lbl.style.fontSize = '13px';
@@ -350,10 +409,17 @@ INJECT_JS = r"""
       updateLabel(next);
     });
 
+    var searchBtn = document.createElement('button');
+    searchBtn.className = 'mirage-btn';
+    searchBtn.title = 'Search this wiki';
+    searchBtn.textContent = 'Search';
+    searchBtn.addEventListener('click', function () { openSearchPanel(); });
+
     updateLabel(ts || '1');
     container.appendChild(darkBtn);
     container.appendChild(incBtn);
     container.appendChild(decBtn);
+    container.appendChild(searchBtn);
     container.appendChild(lbl);
     document.body.appendChild(container);
   }
@@ -365,17 +431,16 @@ INJECT_JS = r"""
 })();
 """
 
-# Utility functions and the rest of the app logic remain identical to the previous working version
-# For brevity I reuse the robust helpers from previous version (custom-host detection, gallery reformat, link rewriting, categories, etc.)
-# The important change for responsiveness is the CSS above and adding the viewport meta tag to each generated page.
+# --- Helper functions ---
 
-# --- Helpers (derive_remote_subdomain, detect_custom_host_from_soup, fetch_remote) ---
 def derive_remote_subdomain(wiki_param: str) -> str:
+    # If wiki_param contains dot (custom host), remote subdomain is first label; else it's the wiki_param
     if '.' in wiki_param:
         return wiki_param.split('.')[0]
     return wiki_param
 
 def detect_custom_host_from_soup(soup: BeautifulSoup):
+    # inspect canonical and og:url meta tags for custom domain
     c = soup.find('link', rel=lambda r: r and 'canonical' in r)
     if c and c.get('href'):
         try:
@@ -406,26 +471,12 @@ def fetch_remote(url):
     headers = {"User-Agent": USER_AGENT}
     return requests.get(url, headers=headers, timeout=15)
 
-# The app uses the same robust helpers for rewriting links, normalizing images, reformatting galleries/tables,
-# removing cookie banners and unwanted elements, youtube placeholders, and categories as in prior version.
-# For clarity and to keep this patch self-contained, I include those helpers unchanged below:
-
-#--- link rewriting (aware of remote_sub and custom_host) ---
-from urllib.parse import urlparse, urljoin, quote
-
+# Rewrite links with special handling for categories and fragments
 def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
-    """
-    Rewrite anchors to keep navigation within this proxy.
-    Special handling for Category pagination:
-      - Query-only ?... links on /wiki/Category:... pages are rewritten to
-        /{host}/w/index.php?title=Category:...&... so upstream handles pagination correctly.
-      - Absolute /wiki/Category:... links with query are likewise rewritten to index.php.
-    """
     base_parsed = urlparse(base_url)
     base_path = base_parsed.path or ""
     base_query = base_parsed.query or ""
 
-    # helper to choose host segment (custom host if present, else remote_sub)
     def host_segment():
         return custom_host if custom_host else remote_sub
 
@@ -433,31 +484,24 @@ def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
         raw = (a["href"] or "").strip()
         if not raw:
             continue
-        # leave javascript/mailto alone
         if raw.startswith("javascript:") or raw.startswith("mailto:"):
             continue
-
-        # fragment-only links: do NOT rewrite to wiki path (important for anchors like #mw-pages)
+        # fragments: keep as-is
         if raw.startswith("#"):
             a["href"] = raw
             continue
-
-        # protocol-relative -> https:
         if raw.startswith("//"):
             a["href"] = "https:" + raw
             continue
-
-        # absolute URLs
         if raw.startswith("http://") or raw.startswith("https://"):
             parsed = urlparse(raw)
             host = parsed.netloc.lower()
-            # handle miraheze absolute links
             if host.endswith(".miraheze.org"):
                 sub = host.split(".")[0]
-                seg = host_segment() if sub == remote_sub and custom_host else sub
-                # If it's a /wiki/Category:... with query, rewrite to /w/index.php?title=...
+                seg = host_segment() if (custom_host and sub == remote_sub) else sub
+                # category path + query -> route to index.php for correct pagination
                 if parsed.path.startswith("/wiki/Category:") and parsed.query:
-                    title = parsed.path[len("/wiki/"):]  # "Category:Name"
+                    title = parsed.path[len("/wiki/"):]
                     new = f"/{quote(seg, safe='')}/w/index.php?title={quote(title, safe='')}"
                     if parsed.query:
                         new += "&" + parsed.query
@@ -472,17 +516,13 @@ def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
                         new += "#" + parsed.fragment
                     a["href"] = new
             else:
-                # external hosts: open in new tab
                 a["target"] = "_blank"
             continue
-
-        # root-relative links (start with '/')
         if raw.startswith("/"):
             parsed = urlparse(raw)
-            # If link points to /wiki/Category:... and includes query (pagefrom/from), map to index.php form
             if parsed.path.startswith("/wiki/Category:") and parsed.query:
                 seg = host_segment()
-                title = parsed.path[len("/wiki/"):]  # "Category:Name"
+                title = parsed.path[len("/wiki/"):]
                 new = f"/{quote(seg, safe='')}/w/index.php?title={quote(title, safe='')}"
                 if parsed.query:
                     new += "&" + parsed.query
@@ -490,46 +530,34 @@ def rewrite_links_in_tag(tag, wiki_param, remote_sub, custom_host, base_url):
                     new += "#" + parsed.fragment
                 a["href"] = new
                 continue
-            # otherwise, prefix with wiki (use custom_host if present)
             seg = host_segment()
             a["href"] = f"/{quote(seg, safe='')}{raw}"
             continue
-
-        # query-only links (start with '?')
         if raw.startswith("?"):
-            # If the current page is a wiki Category page, rewrite to index.php with title param
-            # Detect category via base_path (/wiki/Category:...) or base_query (title=Category:...)
+            # if base page is a category, rewrite to index.php?title=Category:...
             if base_path.startswith("/wiki/Category:") or ("title=Category:" in base_query):
-                # derive title
                 if base_path.startswith("/wiki/"):
-                    title = base_path[len("/wiki/"):]  # "Category:Name"
+                    title = base_path[len("/wiki/"):]
                 else:
-                    # fallback to extracting title from base_query if possible
-                    # naive extraction: find "title=" substring
                     title = ""
                     for part in base_query.split("&"):
                         if part.startswith("title="):
                             title = part[len("title="):]
                             break
                 seg = host_segment()
-                # construct index.php URL: /{seg}/w/index.php?title={title}{raw}
-                # raw already begins with "?", so append directly
                 if title:
                     a["href"] = f"/{quote(seg, safe='')}/w/index.php?title={quote(title, safe='')}{raw}"
                 else:
-                    # fallback: attach to base path (preserve behavior)
                     a["href"] = f"/{quote(seg, safe='')}{base_path}{raw}"
                 continue
-            # Not a category page: attach query to base_path (maintain previous behavior)
             seg = host_segment()
             a["href"] = f"/{quote(seg, safe='')}{base_path}{raw}"
             continue
-
-        # relative paths (no leading slash): treat as wiki page name
+        # relative path without slash -> wiki page
         seg = host_segment()
         a["href"] = f"/{quote(seg, safe='')}/wiki/{quote(raw, safe='')}"
 
-
+# Normalize image src attributes to use absolute links where appropriate
 def normalize_images_in_tag(tag, remote_sub, base_url):
     for img in tag.find_all("img", src=True):
         src = (img["src"] or "").strip()
@@ -542,11 +570,9 @@ def normalize_images_in_tag(tag, remote_sub, base_url):
         else:
             img["src"] = urljoin(base_url, src)
 
+# Extract categories early (from raw soup) to avoid accidental removal
 def find_categories_early(soup, wiki_param, remote_sub, custom_host):
-    selectors = [
-        ".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks",
-        "div#catlinks", "div.mw-catlinks"
-    ]
+    selectors = [".mw-catlinks", "#catlinks", ".mw-normal-catlinks", ".catlinks", "div#catlinks", "div.mw-catlinks"]
     for sel in selectors:
         node = soup.select_one(sel)
         if node:
@@ -600,6 +626,7 @@ def extract_categories_from_content(content_tag, wiki_param, remote_sub, custom_
                 return items
     return None
 
+# Remove global unwanteds (scripts, style, cookie banners, vector class, headers/footers)
 def remove_unwanted_global(soup):
     for tag in list(soup.find_all(["script", "style"])):
         try:
@@ -628,11 +655,7 @@ def remove_unwanted_global(soup):
                 continue
         except Exception:
             continue
-    selectors = [
-        "#mw-head", "header", "nav", ".site-header", "#p-logo", ".portal",
-        ".mw-portlet", ".sidebar", ".mw-sidebar", "#footer", ".mw-footer", ".site-footer",
-        ".siteNotice", ".sitenotice", ".printfooter", "#catlinks", ".searchbox"
-    ]
+    selectors = ["#mw-head", "header", "nav", ".site-header", "#p-logo", ".portal", ".mw-portlet", ".sidebar", ".mw-sidebar", "#footer", ".mw-footer", ".site-footer", ".siteNotice", ".sitenotice", ".printfooter", "#catlinks", ".searchbox"]
     for sel in selectors:
         for el in list(soup.select(sel)):
             try:
@@ -640,12 +663,9 @@ def remove_unwanted_global(soup):
             except Exception:
                 pass
 
+# Reformat templates and tables for responsive layout
 def reformat_templates_and_tables(content_tag):
-    template_selectors = [
-        ".infobox", ".portable-infobox", ".vertical-navbox", ".navbox",
-        ".thumb", ".thumbinner", ".sidebar", ".metadata", ".mbox",
-        ".ambox", ".hatnote", ".toc"
-    ]
+    template_selectors = [".infobox", ".portable-infobox", ".vertical-navbox", ".navbox", ".thumb", ".thumbinner", ".sidebar", ".metadata", ".mbox", ".ambox", ".hatnote", ".toc"]
     for sel in template_selectors:
         for node in list(content_tag.select(sel)):
             try:
@@ -690,6 +710,7 @@ def reformat_templates_and_tables(content_tag):
         except Exception:
             continue
 
+# Convert gallery markup to inline responsive gallery
 def reformat_galleries(content_tag, remote_sub, base_url):
     for gallery in list(content_tag.select(".gallery, .mw-gallery, .gallerybox")):
         try:
@@ -741,6 +762,7 @@ def reformat_galleries(content_tag, remote_sub, base_url):
         except Exception:
             continue
 
+# Replace YouTube iframes with consent placeholders
 def detect_and_replace_youtube(content_tag):
     builder = BeautifulSoup("", "lxml")
     for iframe in list(content_tag.find_all("iframe", src=True)):
@@ -781,7 +803,7 @@ def detect_and_replace_youtube(content_tag):
         except Exception:
             pass
 
-# Core fetch-and-transform (keeps custom-host detection and redirects as previously implemented)
+# --- Core fetch and transform ---
 def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     remote_sub = derive_remote_subdomain(wiki_param)
     if mode == 'wiki':
@@ -795,8 +817,10 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
         r = fetch_remote(remote_url)
     except requests.RequestException as e:
         return Response(f"Error fetching remote wiki: {e}", status=502)
+
     if r.status_code >= 400:
         return Response(f"Remote returned {r.status_code}", status=r.status_code)
+
     content_type = r.headers.get("Content-Type", "")
     if "text/html" not in content_type:
         resp = Response(r.content, status=r.status_code)
@@ -805,13 +829,13 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
 
     original = BeautifulSoup(r.text, "lxml")
 
-    # detect custom host
+    # detect custom host via canonical / og:url
     detected_host = detect_custom_host_from_soup(original)
     custom_host = None
     if detected_host and not detected_host.endswith('.miraheze.org'):
         custom_host = detected_host
 
-    # redirect to custom host path if appropriate (incoming wiki_param was raw subdomain without dot)
+    # redirect if custom_host detected and incoming wiki_param was raw subdomain (no dot)
     if custom_host and '.' not in wiki_param:
         out_path = path
         out_qs = qs
@@ -820,9 +844,11 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
             location = location + "?" + out_qs
         return Response(status=302, headers={"Location": location})
 
+    # extract categories early, then remove global bits
     categories = find_categories_early(original, wiki_param, remote_sub, custom_host)
     remove_unwanted_global(original)
 
+    # find content
     content_tag = original.find(id="content")
     if not content_tag:
         candidate = original.select_one("#mw-content-text, #bodyContent, main")
@@ -832,9 +858,11 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
                 wrapper.append(child.extract())
             candidate.replace_with(wrapper)
             content_tag = wrapper
+
     if not content_tag:
         return Response("No content found on remote page.", status=502)
 
+    # remove in-content undesired elements
     for bad in list(content_tag.select("#mw-cookiewarning-container, .pagetop, .vector-body-before-content")):
         try:
             bad.decompose()
@@ -846,15 +874,12 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
         except Exception:
             pass
 
+    # build minimal doc
     doc = BeautifulSoup("<!doctype html><html><head></head><body></body></html>", "lxml")
     head = doc.head
-    # meta: charset + viewport to ensure mobile scaling is correct
-    head.append(doc.new_tag("meta", charset="utf-8"))
-    head.append(doc.new_tag("meta", attrs={
-        "name": "viewport",
-        "content": "width=device-width, initial-scale=1"
-    }))
-
+    # use attrs dict to avoid new_tag name kw collision
+    head.append(doc.new_tag("meta", attrs={"charset": "utf-8"}))
+    head.append(doc.new_tag("meta", attrs={"name": "viewport", "content": "width=device-width, initial-scale=1"}))
     style_tag = doc.new_tag("style")
     style_tag.string = INJECT_CSS
     head.append(style_tag)
@@ -878,8 +903,11 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     if not content_only:
         return Response("Unexpected error extracting content.", status=500)
 
+    # rewrites and normalization
     rewrite_links_in_tag(content_only, wiki_param, remote_sub, custom_host, remote_url)
     normalize_images_in_tag(content_only, remote_sub, remote_url)
+
+    # galleries -> youtube -> templates/tables
     reformat_galleries(content_only, remote_sub, remote_url)
     detect_and_replace_youtube(content_only)
     reformat_templates_and_tables(content_only)
@@ -903,7 +931,8 @@ def fetch_and_transform(wiki_param, path, mode='wiki', qs=''):
     final_html = str(doc)
     return Response(final_html, content_type="text/html; charset=utf-8")
 
-# Routes accept dots in the wiki path segment
+# --- Routes ---
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -917,6 +946,49 @@ def w_proxy(wiki, rest):
     qs = request.query_string.decode() or ""
     return fetch_and_transform(wiki, rest, mode='w', qs=qs)
 
+# API search endpoint: Special:AllPages/<prefix>
+@app.route('/api/search')
+def api_search():
+    wiki = (request.args.get('wiki') or '').strip()
+    q = (request.args.get('q') or '').strip()
+    if not wiki or not q:
+        return jsonify({"results": []})
+    remote_sub = derive_remote_subdomain(wiki)
+    try:
+        fetch_path = quote(q, safe='')
+    except Exception:
+        fetch_path = q
+    remote_url = f"https://{remote_sub}.miraheze.org/wiki/Special:AllPages/{fetch_path}"
+    try:
+        r = fetch_remote(remote_url)
+    except Exception:
+        return jsonify({"results": []})
+    if r.status_code != 200:
+        return jsonify({"results": []})
+    soup = BeautifulSoup(r.text, "lxml")
+    content = soup.find(id="mw-content-text") or soup.find(id="content") or soup
+    results = []
+    seen = set()
+    for a in content.find_all("a", href=True):
+        href = a["href"].strip()
+        if not href.startswith("/wiki/"):
+            continue
+        title_path = href[len("/wiki/"):]
+        title_path = title_path.split('#', 1)[0].rstrip('/')
+        if not title_path:
+            continue
+        text = a.get_text(" ", strip=True) or title_path
+        key = (title_path, text)
+        if key in seen:
+            continue
+        seen.add(key)
+        proxied_href = f"/{wiki}/wiki/{quote(title_path, safe='/')}"
+        results.append({"title": text, "href": proxied_href})
+        if len(results) >= 100:
+            break
+    return jsonify({"results": results})
+
+# /go redirect (main page form fallback)
 @app.route('/go', methods=['GET', 'POST'])
 def go():
     wiki = (request.values.get('wiki') or '').strip()
