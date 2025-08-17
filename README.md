@@ -1,11 +1,14 @@
 # Mirage
-Mirage is an open privacy frontend to Miraheze. It uses an extremely light interface, focused on accessibility and ease of reading. Font size can be increased, and it has an easy-on-the-eyes dark mode. This configuration is done with cookies that never leave a browser.
+Mirage is an open privacy frontend to Miraheze, heavily WIP. A lot of it was "vibecoded", so having a human or programmer turtle help out would be a nice idea!
 
-In addition, Cache is E2E by default.
-
-Keep in mind Mirage is heavily WIP.
-
-URLs use the exact same format as Breezewiki, and custom domains are also accounted for.
+## Features
+* Pages visited are only logged in the case the frontend explodes, aka for debugging.
+* Search function.
+* Light mode/dark mode.
+* Font size can be increased.
+* Configuration is done with cookies.
+* Cached pages are encrypted by default.
+* URLS use the exact same format as Breezewiki, and custom URLs are also accounted for.
 
 ## How to host
 
