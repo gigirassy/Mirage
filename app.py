@@ -922,54 +922,176 @@ def reformat_templates_and_tables(content_tag):
 
 # Convert gallery markup to inline responsive gallery
 def reformat_galleries(content_tag, remote_sub, base_url):
+    """
+    Convert MediaWiki gallery markup into a responsive inline gallery.
+    - Prefer high-res URLs from srcset / data-srcset when available.
+    - If thumbnail URL contains '/thumb/', reconstruct the original full image URL.
+    - Preserve surrounding <a> link (href and basic attributes) when present so images remain clickable.
+    """
+    def choose_best_src(img_tag):
+        # prefer srcset-like attributes (pick the last / largest entry)
+        for attr in ("srcset", "data-srcset", "data-file-srcset"):
+            val = img_tag.get(attr)
+            if val:
+                try:
+                    entries = [e.strip() for e in val.split(",") if e.strip()]
+                    # last entry typically the largest; each entry: "url [w|x]"
+                    last = entries[-1]
+                    url = last.split()[0]
+                    if url.startswith("//"):
+                        return "https:" + url
+                    if url.startswith("/"):
+                        return f"https://{remote_sub}.miraheze.org{url}"
+                    return url
+                except Exception:
+                    pass
+
+        # fallback to data-src / data-file-src / src
+        for attr in ("data-src", "data-file-src", "data-srcset", "data-original", "src"):
+            val = img_tag.get(attr)
+            if val:
+                if val.startswith("//"):
+                    return "https:" + val
+                if val.startswith("/"):
+                    return f"https://{remote_sub}.miraheze.org{val}"
+                return val
+
+        return None
+
+    def full_from_thumb(src):
+        # If a Wikimedia-style thumbnail URL contains '/thumb/', reconstruct the original image URL:
+        # Example thumb:
+        # https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Filename.jpg/1200px-Filename.jpg
+        # original:
+        # https://upload.wikimedia.org/wikipedia/commons/0/0a/Filename.jpg
+        try:
+            if src.startswith("//"):
+                src = "https:" + src
+            if "/thumb/" in src:
+                prefix, rest = src.split("/thumb/", 1)
+                parts = rest.split("/")
+                # everything except last segment forms the original path to the file
+                if len(parts) >= 2:
+                    orig_path = "/".join(parts[:-1])
+                    return prefix + "/" + orig_path
+            return src
+        except Exception:
+            return src
+
     for gallery in list(content_tag.select(".gallery, .mw-gallery, .gallerybox")):
         try:
             items = []
-            for img_node in gallery.select("img"):
-                caption = None
-                parent_li = img_node.find_parent(["li", "div"])
+            processed_imgs = set()
+
+            # First, attempt to find anchor-wrapped images (preserve link)
+            for a in gallery.find_all("a"):
+                img = a.find("img")
+                if not img:
+                    continue
+                # avoid double-processing same img
+                if img in processed_imgs:
+                    continue
+                processed_imgs.add(img)
+
+                # choose best src
+                best = choose_best_src(img)
+                if not best:
+                    best = img.get("src") or ""
+                # try to convert thumbnail -> full if necessary
+                if "/thumb/" in best:
+                    best = full_from_thumb(best)
+
+                # normalize scheme/relative paths
+                if best.startswith("//"):
+                    best = "https:" + best
+                elif best.startswith("/"):
+                    best = f"https://{remote_sub}.miraheze.org{best}"
+                elif not best.startswith("http://") and not best.startswith("https://"):
+                    best = urljoin(base_url, best)
+
+                # caption fallback: gallerycaption, gallerytext, alt or title
+                caption = ""
+                # search for caption nearby
+                parent_li = a.find_parent(["li", "div"])
                 if parent_li:
                     cap = parent_li.select_one(".gallerytext, .gallerycaption")
                     if cap:
                         caption = cap.get_text(" ", strip=True)
                 if not caption:
-                    caption = img_node.get("alt") or img_node.get("title") or ""
-                src = img_node.get("src") or ""
-                if src.startswith("//"):
-                    src = "https:" + src
-                elif src.startswith("/"):
-                    src = f"https://{remote_sub}.miraheze.org{src}"
-                elif not (src.startswith("http://") or src.startswith("https://")):
-                    src = urljoin(base_url, src)
-                items.append((src, caption))
+                    caption = img.get("alt") or img.get("title") or ""
+
+                # preserve anchor href and attributes (we'll copy href and target if present)
+                ahref = a.get("href", "")
+                a_attrs = {}
+                if ahref:
+                    a_attrs["href"] = ahref
+                if a.get("target"):
+                    a_attrs["target"] = a.get("target")
+                if a.get("rel"):
+                    a_attrs["rel"] = " ".join(a.get("rel")) if isinstance(a.get("rel"), (list,tuple)) else a.get("rel")
+
+                items.append((best, caption, a_attrs))
+
+            # Next, any images not wrapped with anchor
+            for img in gallery.find_all("img"):
+                if img in processed_imgs:
+                    continue
+                processed_imgs.add(img)
+                best = choose_best_src(img)
+                if not best:
+                    best = img.get("src") or ""
+                if "/thumb/" in best:
+                    best = full_from_thumb(best)
+                if best.startswith("//"):
+                    best = "https:" + best
+                elif best.startswith("/"):
+                    best = f"https://{remote_sub}.miraheze.org{best}"
+                elif not best.startswith("http://") and not best.startswith("https://"):
+                    best = urljoin(base_url, best)
+
+                caption = ""
+                parent_li = img.find_parent(["li", "div"])
+                if parent_li:
+                    cap = parent_li.select_one(".gallerytext, .gallerycaption")
+                    if cap:
+                        caption = cap.get_text(" ", strip=True)
+                if not caption:
+                    caption = img.get("alt") or img.get("title") or ""
+
+                items.append((best, caption, {}))
+
             if not items:
-                for a in gallery.select("a.galleryimage, a"):
-                    img = a.find("img")
-                    if not img:
-                        continue
-                    src = img.get("src") or ""
-                    if src.startswith("//"):
-                        src = "https:" + src
-                    elif src.startswith("/"):
-                        src = f"https://{remote_sub}.miraheze.org{src}"
-                    elif not (src.startswith("http://") or src.startswith("https://")):
-                        src = urljoin(base_url, src)
-                    caption = img.get("alt") or img.get("title") or a.get("title") or ""
-                    items.append((src, caption))
-            if not items:
+                # No images found — skip
                 continue
-            gal = BeautifulSoup("", "lxml").new_tag("div", **{"class": "mirage-gallery"})
-            for src, caption in items:
-                item = BeautifulSoup("", "lxml").new_tag("div", **{"class": "mirage-gallery-item"})
-                imgtag = BeautifulSoup("", "lxml").new_tag("img", src=src)
-                item.append(imgtag)
+
+            # build new gallery node using the same parser for consistency
+            builder = BeautifulSoup("", "lxml")
+            gal = builder.new_tag("div", **{"class": "mirage-gallery"})
+            for src, caption, a_attrs in items:
+                item = builder.new_tag("div", **{"class": "mirage-gallery-item"})
+                # if we have an anchor, wrap image with it and copy href/target/rel
+                if a_attrs.get("href"):
+                    a_tag = builder.new_tag("a", href=a_attrs.get("href"))
+                    if a_attrs.get("target"):
+                        a_tag["target"] = a_attrs.get("target")
+                    if a_attrs.get("rel"):
+                        a_tag["rel"] = a_attrs.get("rel")
+                    imgtag = builder.new_tag("img", src=src)
+                    a_tag.append(imgtag)
+                    item.append(a_tag)
+                else:
+                    imgtag = builder.new_tag("img", src=src)
+                    item.append(imgtag)
                 if caption:
-                    c = BeautifulSoup("", "lxml").new_tag("div", **{"class": "caption"})
+                    c = builder.new_tag("div", **{"class": "caption"})
                     c.string = caption
                     item.append(c)
                 gal.append(item)
+
+            # replace original gallery with the constructed gallery
             gallery.replace_with(gal)
         except Exception:
+            # don't let a gallery error break the whole page
             continue
 
 # Replace YouTube iframes with consent placeholders
